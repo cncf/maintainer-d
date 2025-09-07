@@ -6,11 +6,10 @@ namespace: maintainerd
 resources:
   - ../../base
 
-patchesStrategicMerge:
-  - patch-ingress.yaml
-  - patch-deployment.yaml
+patches:
+  - path: patch-ingress.yaml
+  - path: patch-deployment.yaml
 
 images:
   - name: ghcr.io/robertkielty/maintainerd
     newTag: latest
-
