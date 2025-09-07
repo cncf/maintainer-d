@@ -31,7 +31,8 @@ image-run: image
 NAMESPACE ?= maintainerd
 ENVSRC    ?= .envrc
 ENVOUT    ?= bootstrap.env
-KUBECONTEXT ?=kind-maintainerd
+KUBECONTEXT ?=context-cdv2c4jfn5q
+
 
 # Secret names (keep these stable across clusters)
 ENV_SECRET_NAME   ?= maintainerd-bootstrap-env
@@ -189,6 +190,8 @@ argocd-install:
 .PHONY: argocd-ui
 argocd-ui:
 	@echo "Port-forwarding Argo CD UI to https://localhost:8088 (Ctrl-C to stop)"
+	@echo "Initial admin password (run this):"
+	@echo "  kubectl $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo"
 	@kubectl $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) -n argocd port-forward svc/argocd-server 8088:443
 
 .PHONY: argo-bootstrap
