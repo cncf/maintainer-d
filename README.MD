@@ -56,3 +56,43 @@ We deploy using plain manifests (no Helm). Key targets:
 - Verify:
   - `kubectl -n maintainerd get pvc,deploy,svc,ing`
   - The Deployment runs an initContainer that bootstraps the DB before the server starts.
+
+## Manual Testing (alternate org/repo)
+
+Use environment variables `ORG` and `REPO` to point the server at a different GitHub org/repo for testing (e.g., your fork). The Deployment passes `-org=$ORG` and `-repo=$REPO` to the server, which resolves those from the environment injected via the bootstrap Secret.
+
+- Set env in `.envrc` (example):
+
+  - `export ORG=robertkielty`
+  - `export REPO=maintainerd`
+
+- Regenerate and apply the bootstrap Secret (injects env into the Pod):
+
+  - `make env`
+  - `make apply-env`
+
+- Apply/roll the Deployment to pick up changes (if already applied, a rollout is enough):
+
+  - `make manifests-apply`  (or)
+  - `kubectl -n maintainerd rollout restart deploy/maintainerd && \\
+     kubectl -n maintainerd rollout status deploy/maintainerd --timeout=180s`
+
+- Configure the GitHub webhook on the alternate repo:
+
+  - Payload URL: `http://maintainerd.localtest.me/webhook`
+  - Content type: `application/json`
+  - Secret: must match `GITHUB_WEBHOOK_SECRET` in `maintainerd-bootstrap-env`
+  - Events: at least “Issues” and “Issue comments”
+
+- Exercise the flow on the test repo:
+
+  - Create or use an onboarding issue titled `"[PROJECT ONBOARDING] <project>"`
+  - Add label `fossa` (creates the FOSSA team via the label flow)
+  - Assign yourself to the issue (assignees can trigger commands)
+  - Comment exactly: `/fossa-invite accepted`
+  - Watch logs: `kubectl -n maintainerd logs deploy/maintainerd -f`
+
+- Notes:
+
+  - Public comments never include email addresses; only GitHub handles are shown.
+  - If the team does not exist, the server comments instructions to add the `fossa` label first and retry.

@@ -4,6 +4,9 @@ REGISTRY ?= ghcr.io
 IMAGE ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd:latest
 WHOAMI=$(shell whoami)
 
+# Helpful context string for logs
+CTX_STR := $(if $(KUBECONTEXT),$(KUBECONTEXT),$(shell kubectl config current-context 2>/dev/null || echo current))
+
 # GHCR auth (optional for push). If set, we will docker login before push.
 GHCR_USER  ?= $(DOCKER_REGISTRY_USERNAME)
 GHCR_TOKEN ?= $(GITHUB_GHCR_TOKEN)
@@ -24,11 +27,18 @@ image:
 	fi
 	@echo "Pushing image: $(IMAGE)"
 	@docker push $(IMAGE)
-	@echo "Image pushed. If kind cluster 'maintainerd' is running, rolling restart Deployment."
-	@kind get clusters | grep -qx maintainerd \
-		&& kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) rollout restart deploy/maintainerd \
-		&& kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) rollout status deploy/maintainerd --timeout=180s \
-		|| echo "kind 'maintainerd' not running; skip k8s rollout"
+	@echo "Image pushed. Attempting rollout on context $(CTX_STR)."
+	@CTX_FLAG="$(if $(KUBECONTEXT),--context $(KUBECONTEXT))" ; \
+	if kubectl $$CTX_FLAG config current-context >/dev/null 2>&1; then \
+		echo "Updating Deployment/maintainerd image to $(IMAGE) [ctx=$(CTX_STR)]"; \
+		kubectl -n $(NAMESPACE) $$CTX_FLAG set image deploy/maintainerd server=$(IMAGE) bootstrap=$(IMAGE); \
+		echo "Rolling restart Deployment/maintainerd [ctx=$(CTX_STR)]"; \
+		kubectl -n $(NAMESPACE) $$CTX_FLAG rollout restart deploy/maintainerd; \
+		echo "Waiting for rollout to complete [ctx=$(CTX_STR)]"; \
+		kubectl -n $(NAMESPACE) $$CTX_FLAG rollout status deploy/maintainerd --timeout=180s; \
+	else \
+		echo "kubectl context $(CTX_STR) unavailable; skipping rollout"; \
+	fi
 
 .PHONY: image-push
 image-push: image
@@ -78,8 +88,10 @@ help:
 	@echo "make cluster-up     -> kind-up + ns + ghcr secret + secrets + manifests-apply"
 	@echo "make maintainerd-delete -> delete Deployment/Service maintainerd"
 	@echo "make maintainerd-restart -> rollout restart Deployment/maintainerd"
+	@echo "make maintainerd-drain   -> scale Deployment/maintainerd to 0 and wait for pods to exit"
 	@echo "make maintainerd-port-forward -> forward :2525 -> svc/maintainerd:2525"
 	@echo "make cluster-down    -> tear down kind cluster 'maintainerd'"
+	@echo "make kind-load-image -> build+load local image into kind and patch deploy to use it [ctx=$(CTX_STR)]"
 
 # Convert .envrc (export FOO=bar) to KEY=VALUE lines
 # - drops comments/blank lines
@@ -94,7 +106,7 @@ $(ENVOUT): $(ENVSRC)
 # Apply the Secret with all bootstrap env vars
 .PHONY: apply-env
 apply-env: $(ENVOUT)
-	@echo "Applying secret $(ENV_SECRET_NAME) in namespace $(NAMESPACE)"
+	@echo "Applying secret $(ENV_SECRET_NAME) in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) create secret generic $(ENV_SECRET_NAME) \
 		--from-env-file=$(ENVOUT) \
 		$(if $(KUBECONTEXT),--context $(KUBECONTEXT)) \
@@ -104,7 +116,7 @@ apply-env: $(ENVOUT)
 .PHONY: apply-creds
 apply-creds:
 	@[ -f "$(CREDS_FILE)" ] || (echo "Missing $(CREDS_FILE). Set CREDS_FILE=... or place the file."; exit 1)
-	@echo "Applying secret $(CREDS_SECRET_NAME) in namespace $(NAMESPACE)"
+	@echo "Applying secret $(CREDS_SECRET_NAME) in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) create secret generic $(CREDS_SECRET_NAME) \
 		--from-file=$(CREDS_KEY)=$(CREDS_FILE) \
 		$(if $(KUBECONTEXT),--context $(KUBECONTEXT)) \
@@ -129,7 +141,7 @@ clean-env:
 # ---- kind cluster lifecycle ----
 .PHONY: kind-up
 kind-up:
-	@echo "Ensuring kind cluster 'maintainerd' exists"
+	@echo "Ensuring kind cluster 'maintainerd' exists [ctx=$(CTX_STR)]"
 	@kind get clusters | grep -qx maintainerd || kind create cluster --name maintainerd --config hack/kind-config.yaml
 	@echo "Kube context set to $(KUBECONTEXT)"
 
@@ -141,14 +153,15 @@ kind-down:
 ## ---- Cluster helpers ----
 .PHONY: ensure-ns
 ensure-ns:
-	@kubectl get ns $(NAMESPACE) >/dev/null 2>&1 \
+	@echo "Ensuring namespace $(NAMESPACE) exists [ctx=$(CTX_STR)]"
+	@kubectl $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) get ns $(NAMESPACE) >/dev/null 2>&1 \
 		|| kubectl create ns $(NAMESPACE)
 
 .PHONY: apply-ghcr-secret
 apply-ghcr-secret:
 	@:${DOCKER_REGISTRY_USERNAME:?Set DOCKER_REGISTRY_USERNAME (e.g. your GitHub username)}
 	@:${DOCKER_REGISTRY_PASSWORD:?Set DOCKER_REGISTRY_PASSWORD (a PAT with package:read)}
-	@echo "Applying docker-registry secret 'ghcr-secret' in namespace $(NAMESPACE)"
+	@echo "Applying docker-registry secret 'ghcr-secret' in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) create secret docker-registry ghcr-secret \
 		--docker-server=$(DOCKER_REGISTRY_SERVER) \
 		--docker-username=$(DOCKER_REGISTRY_USERNAME) \
@@ -160,12 +173,12 @@ apply-ghcr-secret:
 # ---- Plain manifests (no Helm/Argo CD) ----
 .PHONY: manifests-apply
 manifests-apply:
-	@echo "Applying manifests in deploy/manifests to namespace $(NAMESPACE)"
+	@echo "Applying manifests in deploy/manifests to namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f deploy/manifests
 
 .PHONY: manifests-delete
 manifests-delete:
-	@echo "Deleting manifests in deploy/manifests from namespace $(NAMESPACE)"
+	@echo "Deleting manifests in deploy/manifests from namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) delete -f deploy/manifests --ignore-not-found
 
 
@@ -173,9 +186,9 @@ manifests-delete:
 # ---- ingress controller (nginx) for kind ----
 .PHONY: ingress-nginx-install
 ingress-nginx-install:
-	@echo "Installing ingress-nginx controller (kind provider)"
+	@echo "Installing ingress-nginx controller (kind provider) [ctx=$(CTX_STR)]"
 	@kubectl $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-	@echo "Waiting for ingress controller to be Ready"
+	@echo "Waiting for ingress controller to be Ready [ctx=$(CTX_STR)]"
 	@kubectl $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) -n ingress-nginx wait --for=condition=Ready pod -l app.kubernetes.io/component=controller --timeout=180s
 
 # High-level: bring up full local stack for bootstrap (plain manifests)
@@ -191,15 +204,37 @@ cluster-down: kind-down
 
 .PHONY: maintainerd-delete
 maintainerd-delete:
-	@echo "Deleting Deployment/Service 'maintainerd' from $(NAMESPACE)"
+	@echo "Deleting Deployment/Service 'maintainerd' from $(NAMESPACE) [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) delete deploy/maintainerd svc/maintainerd --ignore-not-found
 
 .PHONY: maintainerd-restart
 maintainerd-restart:
-	@echo "Rolling out restart for Deployment/maintainerd"
+	@echo "Rolling out restart for Deployment/maintainerd [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) rollout restart deploy/maintainerd
+
+.PHONY: maintainerd-drain
+maintainerd-drain:
+	@echo "Scaling Deployment/maintainerd to 0 replicas [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) scale deploy/maintainerd --replicas=0
+	@echo "Waiting for maintainerd pods to terminate [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) wait --for=delete pod -l app=maintainerd --timeout=120s 2>/dev/null || \
+		echo "No maintainerd pods left to delete"
 
 .PHONY: maintainerd-port-forward
 maintainerd-port-forward:
-	@echo "Port-forwarding localhost:2525 -> service/maintainerd:2525"
+	@echo "Port-forwarding localhost:2525 -> service/maintainerd:2525 [ctx=$(CTX_STR)]"
 	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) port-forward svc/maintainerd 2525:2525
+
+# ---- local dev: build and use local image in kind ----
+.PHONY: kind-load-image
+kind-load-image:
+	@echo "Building local image: $(IMAGE)"
+	@docker build -t $(IMAGE) -f Dockerfile .
+	@echo "Loading image into kind cluster 'maintainerd'"
+	@kind load docker-image $(IMAGE) --name maintainerd
+	@echo "Pointing Deployment at $(IMAGE) [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) set image deploy/maintainerd server=$(IMAGE) bootstrap=$(IMAGE)
+	@echo "Setting imagePullPolicy=IfNotPresent for server and bootstrap [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) patch deploy/maintainerd --type=json -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"},{"op":"replace","path":"/spec/template/spec/initContainers/0/imagePullPolicy","value":"IfNotPresent"}]'
+	@echo "Waiting for rollout [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) rollout status deploy/maintainerd --timeout=180s

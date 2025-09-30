@@ -9,7 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-
+	"strings"
 	"time"
 )
 
@@ -65,7 +65,7 @@ func (c *Client) FetchFirstPageOfUsers() ([]User, error) {
 }
 func (c *Client) FetchUsers() ([]User, error) {
 	var allUsers []User
-	page := 1
+	page := 0
 	count := 100 // Adjust this value as per FOSSA API limits
 	fmt.Printf("")
 	for {
@@ -106,9 +106,10 @@ func (c *Client) FetchUsers() ([]User, error) {
 		if len(users) < count {
 			break
 		}
+		fmt.Printf("FetchUsers page: %d users:%q \n", page, users)
 		page++
 	}
-
+	fmt.Printf("FetchUsers page: %d Found %d FOSSA Users\n", page, len(allUsers))
 	return allUsers, nil
 }
 
@@ -135,6 +136,21 @@ func (c *Client) FetchUserInvitations() (string, error) {
 	}
 
 	return string(body), nil
+}
+
+// HasPendingInvitation performs a check to see if an active invitation exists for the email.
+// It relies on FetchUserInvitations and searches for the email within the response body to avoid
+// coupling to an unstable API schema.
+func (c *Client) HasPendingInvitation(email string) (bool, error) {
+	log.Printf("HasPendingInvitation: email=%q", email)
+	body, err := c.FetchUserInvitations()
+	if err != nil {
+		log.Printf("HasPendingInvitation: err=%q", err)
+		return false, err
+	}
+	log.Printf("HasPendingInvitation: body=%q", body)
+	// Case-insensitive substring search; avoids schema assumptions.
+	return strings.Contains(strings.ToLower(body), strings.ToLower(email)), nil
 }
 
 // SendUserInvitation uses email to send an invitation to join this org of FOSSA
@@ -258,6 +274,103 @@ func (c *Client) FetchTeamUserEmails(teamID int) ([]string, error) {
 		}
 	}
 	return emails, nil
+}
+
+// AddUserToTeamByEmail attempts to add a user to a FOSSA team by email.
+// If roleID is not 0, it will be included; otherwise the server default role is used.
+// Returns ErrUserAlreadyMember for idempotent behavior when applicable.
+func (c *Client) AddUserToTeamByEmail(teamID int, email string, roleID int) error {
+	fmt.Printf("AddUserToTeamByEmail: teamID %d email %s, roleID %d\n", teamID, email, roleID)
+
+	// The FOSSA API expects a bulk users payload to /teams/{id}/users with action=add.
+	// We must provide user IDs, so resolve the user by email first.
+	uid, err := c.findUserIDByEmail(email)
+	fmt.Printf("AddUserToTeamByEmail: uid=%q, err=%v\n", uid, err)
+	if err != nil {
+		return fmt.Errorf("resolve user by email: %w", err)
+	}
+
+	bodyPayload := map[string]interface{}{
+		"users": []map[string]interface{}{
+			{
+				"id": uid,
+			},
+		},
+		"action": "add",
+	}
+	// Let's try defaulting the role
+	// if roleID != 0 {
+	//	bodyPayload["users"].([]map[string]interface{})[0]["roleId"] = roleID
+	//}
+	jsonBody, err := json.Marshal(bodyPayload)
+	if err != nil {
+		return fmt.Errorf("failed to encode body: %w", err)
+	}
+	fmt.Printf("AddUserToTeamByEmail: %s\n", bodyPayload)
+	url := fmt.Sprintf("%s/teams/%d/users", c.APIBase, teamID)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
+	// Attempt to decode known FOSSA error schema
+	var fossaErr FossaError
+	if err := json.Unmarshal(body, &fossaErr); err == nil {
+		switch fossaErr.Code {
+		case ErrCodeUserAlreadyMember:
+			return fmt.Errorf("%w: %s", ErrUserAlreadyMember, fossaErr.Message)
+		default:
+			return fmt.Errorf("AddUserToTeamByEmail failed (code %d): %s – %s", fossaErr.Code, resp.Status, fossaErr.Message)
+		}
+	}
+	// Fallback: unknown error format
+	return fmt.Errorf("AddUserToTeamByEmail failed: %s – %s", resp.Status, string(body))
+}
+
+// findUserIDByEmail searches the user list for a matching email and returns the user ID.
+func (c *Client) findUserIDByEmail(email string) (int, error) {
+	log.Printf("findUserIDByEmail: email=%q", email)
+	users, err := c.FetchUsers()
+	if err != nil {
+		return 0, err
+	}
+	target := normalizeEmail(email)
+	if target == "" {
+		return 0, fmt.Errorf("user not found by email: %s", email)
+	}
+	fmt.Printf("findUserIDByEmail: Searching for email %q\n", target)
+
+	for _, u := range users {
+		fmt.Printf("findUserIDByEmail:Found user with email %q should return %d from %q\n", u.Email, u.ID, u)
+		if normalizeEmail(u.Email) == target {
+			return u.ID, nil
+		}
+		if u.GitHub.Email != nil && normalizeEmail(*u.GitHub.Email) == target {
+			return u.ID, nil
+		}
+		if u.Bitbucket.Email != nil && normalizeEmail(*u.Bitbucket.Email) == target {
+			return u.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("user not found by email: %s", email)
+}
+
+func normalizeEmail(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 // GetTeamId searches a slice of Team objects by name.
@@ -436,6 +549,11 @@ type User struct {
 		Email     *string `json:"email"`
 		AvatarURL string  `json:"avatar_url"`
 	} `json:"github"`
+	Bitbucket struct {
+		Name      *string `json:"name"`
+		Email     *string `json:"email"`
+		AvatarURL string  `json:"avatar_url"`
+	} `json:"bitbucketCloud"`
 	TeamUsers []struct {
 		RoleID int `json:"roleId"`
 		Team   struct {

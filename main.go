@@ -2,9 +2,10 @@
 package main
 
 import (
-	"flag"
-	"log"
-	"os"
+    "flag"
+    "log"
+    "os"
+    "strings"
 
 	"maintainerd/onboarding"
 )
@@ -20,17 +21,40 @@ func main() {
 		ghOrg         = flag.String("org", "cncf", "Name of the GitHub org (e.g. cncf)")
 		ghToken       = flag.String("gh-api", "", "GitHub API token (raw string)")
 	)
-	flag.Parse()
+    flag.Parse()
 
-	if *webhookSecret == "" {
-		*webhookSecret = os.Getenv("GITHUB_WEBHOOK_SECRET")
-	}
+    if *webhookSecret == "" {
+        *webhookSecret = os.Getenv("GITHUB_WEBHOOK_SECRET")
+    }
 	if *webhookSecret == "" {
 		log.Fatal("must provide --webhook-secret or set GITHUB_WEBHOOK_SECRET")
 	}
-	if *ghToken == "" {
-		*ghToken = os.Getenv("GITHUB_API_TOKEN")
-	}
+    if *ghToken == "" {
+        *ghToken = os.Getenv("GITHUB_API_TOKEN")
+    }
+
+    // Allow environment overrides for org/repo.
+    // Two modes supported:
+    // 1) If flags are left at their defaults (cncf/sandbox), use ORG/REPO env if set.
+    // 2) If flags are provided as "$ENVNAME", resolve from that env variable.
+    if *ghOrg == "cncf" {
+        if v := os.Getenv("ORG"); v != "" {
+            *ghOrg = v
+        }
+    } else if strings.HasPrefix(*ghOrg, "$") {
+        if v := os.Getenv(strings.TrimPrefix(*ghOrg, "$")); v != "" {
+            *ghOrg = v
+        }
+    }
+    if *ghRep == "sandbox" {
+        if v := os.Getenv("REPO"); v != "" {
+            *ghRep = v
+        }
+    } else if strings.HasPrefix(*ghRep, "$") {
+        if v := os.Getenv(strings.TrimPrefix(*ghRep, "$")); v != "" {
+            *ghRep = v
+        }
+    }
 
 	// instantiate and initialize listener
 	listener := &onboarding.EventListener{
