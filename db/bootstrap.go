@@ -32,7 +32,7 @@ const (
 	MailingListAddrHdr   string = "Mailing List Address"
 )
 
-func BootstrapSQLite(dbPath, spreadsheetID, readRange, worksheetCredentialsPath, fossaToken string, seed bool) (*gorm.DB, error) {
+func BootstrapSQLite(dbPath, spreadsheetID, worksheetCredentialsPath, fossaToken string, seed bool) (*gorm.DB, error) {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
@@ -87,7 +87,7 @@ func BootstrapSQLite(dbPath, spreadsheetID, readRange, worksheetCredentialsPath,
 		return nil, err
 	}
 
-	if err := loadMaintainersAndProjects(db, spreadsheetID, readRange, worksheetCredentialsPath); err != nil {
+	if err := loadMaintainersAndProjects(db, spreadsheetID, worksheetCredentialsPath); err != nil {
 		return nil, fmt.Errorf("bootstrap: failed to load maintainers and projects: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func BootstrapSQLite(dbPath, spreadsheetID, readRange, worksheetCredentialsPath,
 
 // Reads the readRange data from spreadsheetID inserts it into db
 // The readRange from the worksheet MUST include the header row
-func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, readRange, credentialsPath string) error {
+func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, credentialsPath string) error {
 	ctx := context.Background()
 
 	srv, err := sheets.NewService(
@@ -115,7 +115,7 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, readRange, credentia
 		log.Fatalf("maintainerd: backend: loadMaintainersAndProjects: unable to retrieve Sheets client: %v", err)
 	}
 
-	rows, err := readSheetRows(ctx, srv, spreadsheetID, readRange)
+	rows, err := readSheetRows(ctx, srv, spreadsheetID)
 
 	if err != nil {
 		log.Fatalf("maintainerd-backend: loadMaintainersAndProjects - readSheetRows: %v", err)
@@ -211,16 +211,18 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, readRange, credentia
 
 // readSheetRows returns every row as a map keyed by the header row and carries forward the last non‐empty Project and
 // Status values when those cells are blank or missing.
-func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID, readRange string) ([]map[string]string, error) {
+// The readRange must include the header row.
+// The
+func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID string) ([]map[string]string, error) {
 	resp, err := srv.Spreadsheets.Values.
-		Get(spreadsheetID, readRange).
+		Get(spreadsheetID, "Active!A:J").
 		Context(ctx).
 		Do()
 	if err != nil {
-		return nil, fmt.Errorf("db: Using %s:%s unable to retrieve worksheet data: %w", spreadsheetID, readRange, err)
+		return nil, fmt.Errorf("db: Using %s unable to retrieve worksheet data: %w", spreadsheetID, err)
 	}
 	if len(resp.Values) == 0 {
-		return nil, fmt.Errorf("db: %s:%s worksheet is empty", spreadsheetID, readRange)
+		return nil, fmt.Errorf("db: %s worksheet is empty", spreadsheetID)
 	}
 
 	// First row → headers
@@ -540,7 +542,7 @@ func FirstOrCreateServiceUser(db *gorm.DB, user fossa.User) (*model.ServiceUser,
 		ServiceEmail:      user.Email,
 	}
 
-	// find a service user with fields in lookup, and if not found, create it with these values"
+	// find a service user with fields in lookup, and if not found, create it with these values
 	if err := db.Where(&lookup).Attrs(&create).FirstOrCreate(&su).Error; err != nil {
 		return nil, fmt.Errorf("loadFossa FirstOrCreateServiceUser failed for %v, err : %w", lookup, err)
 	}

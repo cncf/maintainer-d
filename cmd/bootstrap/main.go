@@ -18,14 +18,12 @@ const (
 	apiTokenEnvVar             = "FOSSA_API_TOKEN"
 	spreadsheetEnvVar          = "MD_WORKSHEET"
 	googleWorkspaceCredentials = "WORKSPACE_CREDENTIALS_FILE"
-	defaultReadRange           = "Active!A1:J2100"
 	defaultDBPath              = "maintainers.db"
 	defaultMaxBackups          = 5
 	backupFileExt              = ".bak"
 )
 
 func main() {
-	var readRange string
 	var dbPath string
 	var seed bool
 	var doBackup bool
@@ -64,7 +62,7 @@ func main() {
 					pruneOldBackups(dbPath, maxBackups)
 				}
 			}
-			_, err := db.BootstrapSQLite(dbPath, spreadsheetID, readRange, credentialsPath, fossaToken, seed)
+			_, err := db.BootstrapSQLite(dbPath, spreadsheetID, credentialsPath, fossaToken, seed)
 			if err != nil {
 				log.Fatalf("bootstrap failed: %v", err)
 			}
@@ -72,7 +70,6 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVar(&readRange, "range", defaultReadRange, "Google Sheet read range")
 	rootCmd.Flags().StringVar(&dbPath, "db", defaultDBPath, "Path to SQLite database file")
 	rootCmd.Flags().BoolVar(&seed, "seed", true, "Whether to load seed data into the database")
 	rootCmd.Flags().BoolVar(&doBackup, "backup", true, "Whether to create a backup of the database if it exists")
