@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	apiTokenEnvVar             = "FOSSA_API_TOKEN"
+	apiTokenEnvVar             = "FOSSA_API_TOKEN" //nolint:gosec
 	spreadsheetEnvVar          = "MD_WORKSHEET"
-	googleWorkspaceCredentials = "WORKSPACE_CREDENTIALS_FILE"
+	googleWorkspaceCredentials = "WORKSPACE_CREDENTIALS_FILE" //nolint:gosec
 	defaultDBPath              = "maintainers.db"
 	defaultMaxBackups          = 5
 	backupFileExt              = ".bak"
@@ -100,7 +100,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer destination.Close()
+	defer func(destination *os.File) {
+		err := destination.Close()
+		if err != nil {
+			log.Printf("warning: failed to close file %s: %v", dst, err)
+		}
+	}(destination)
 
 	_, err = destination.ReadFrom(source)
 	return err

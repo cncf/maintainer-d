@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	apiTokenEnvVar = "FOSSA_API_TOKEN"
+	apiTokenEnvVar = "FOSSA_API_TOKEN" //nolint:gosec
 )
 
 func main() {

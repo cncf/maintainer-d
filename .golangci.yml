@@ -1,87 +1,78 @@
+version: "2"
 run:
-  timeout: 5m
-  tests: true
   modules-download-mode: readonly
-
+  tests: true
 linters:
   enable:
-    - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
-    - govet         # Vet examines Go source code
-    - ineffassign   # Detect ineffectual assignments
-    - staticcheck   # Go static analysis
-    - unused        # Check for unused code
-    - gofmt         # Check formatting
-    - goimports     # Check imports formatting
-    - misspell      # Find misspelled words
-    - unconvert     # Remove unnecessary conversions
-    - unparam       # Find unused function parameters
-    - revive        # Fast, configurable linter
-    - gosec         # Security checks
-    - bodyclose     # Check HTTP response body closed
-    - nilerr        # Find code returning nil even if error
-
-linters-settings:
-  errcheck:
-    check-blank: true
-    check-type-assertions: true
-  
-  govet:
-    enable-all: true
-    disable:
-      - shadow  # Can be too noisy
-  
-  revive:
+    - bodyclose
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gosec:
+      excludes:
+        - G404
+    govet:
+      disable:
+        - shadow
+      enable-all: true
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-        disabled: true  # Allow unexported comments
-      - name: package-comments
-        disabled: true  # Allow missing package comments
-  
-  gosec:
-    excludes:
-      - G404  # Insecure random - OK for non-crypto uses
-  
-  misspell:
-    locale: US
-
+      - linters:
+          - errcheck
+          - gosec
+          - unparam
+        path: _test\.go
+      - linters:
+          - revive
+          - unused
+        path: .*_mock\.go
+      - linters:
+          - unused
+        path: test_helpers\.go
+      - linters:
+          - lll
+        path: _test\.go
+      - linters:
+          - bodyclose
+          - errcheck
+          - gosec
+          - govet
+        path: (cmd/bootstrap|plugins/fossa/client)\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # Exclude some linters from test files
-    - path: _test\.go
-      linters:
-        - gosec
-        - unparam
-        - errcheck
-    
-    # Exclude mock files
-    - path: .*_mock\.go
-      linters:
-        - revive
-        - unused
-    
-    # Exclude test helper files
-    - path: test_helpers\.go
-      linters:
-        - unused
-    
-    # Allow long lines in test tables
-    - path: _test\.go
-      linters:
-        - lll
-    
-    # Exclude pre-existing code from strict linting (not part of this PR)
-    - path: (cmd/bootstrap|plugins/fossa/client)\.go
-      linters:
-        - gosec
-        - errcheck
-        - bodyclose
-        - govet
-
   max-issues-per-linter: 0
   max-same-issues: 0
-
-output:
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
