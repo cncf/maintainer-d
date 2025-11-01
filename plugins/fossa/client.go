@@ -173,7 +173,7 @@ func (c *Client) SendUserInvitation(email string) error {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("FetchUserInvitations failed %w\n", err)
+		return fmt.Errorf("FetchUserInvitations failed %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -204,7 +204,10 @@ func (c *Client) SendUserInvitation(email string) error {
 
 // FetchTeam retrieves a team by its name from the list of all teams or returns an error if the team is not found.
 func (c *Client) FetchTeam(name string) (*Team, error) {
-	teams, _ := c.FetchTeams()
+	teams, err := c.FetchTeams()
+	if err != nil {
+		return nil, fmt.Errorf("failed to find team with name %s, FOSSA Error was %v", name, err)
+	}
 	for _, team := range teams {
 		if team.Name == name {
 			return &team, nil
@@ -412,10 +415,12 @@ func (c *Client) GetTeam(teamID int) (*Team, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("FetchTeams failed %w\n", err)
+		return nil, fmt.Errorf("FetchTeams failed %w", err)
 	}
 	body, err := io.ReadAll(resp.Body)
-
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
 	var team Team
 	if err := json.Unmarshal(body, &team); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -446,6 +451,9 @@ func (c *Client) CreateTeam(name string) (*Team, error) {
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var fossaErr FossaError
@@ -457,6 +465,9 @@ func (c *Client) CreateTeam(name string) (*Team, error) {
 					return nil, fmt.Errorf("failed to decode response: %w", err)
 				}
 				team, err = c.FetchTeam(name)
+				if err != nil {
+					return nil, fmt.Errorf("CreateTeam: failed to fetch existing team after team-already-exists error: %w", err)
+				}
 				if team != nil {
 					return team, nil // We disregard the team-already-exists error
 				}
@@ -662,9 +673,7 @@ func formatLocator(locator string) string {
 		return ""
 	}
 
-	if strings.HasSuffix(u.Host, ":") {
-		u.Host = strings.TrimSuffix(u.Host, ":")
-	}
+	u.Host = strings.TrimSuffix(u.Host, ":")
 
 	if !strings.HasSuffix(u.Path, ".git") && strings.HasSuffix(locator, ".git") {
 		u.Path += ".git"

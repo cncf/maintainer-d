@@ -151,7 +151,7 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, credentialsPath stri
 		if github == "" {
 			missingMaintainerFields = append(missingMaintainerFields, ":"+GitHubHdr)
 		}
-
+		log.Printf("DEBUG, processing maintainer %s, missing fields %v \n", row[MaintainerNameHdr], missingMaintainerFields)
 		var parent model.Project
 		if parentName := row[ParentProjectHdr]; parentName != "" {
 			parent = model.Project{}
@@ -357,7 +357,7 @@ func CreateServiceTeamsForUser(
 			}
 			teams = append(teams, st)
 		} else {
-			return nil, fmt.Errorf("CreateServiceTeamsForUser: ERROR %s is NOT A registered project!\n", team.Team.Name)
+			return nil, fmt.Errorf("CreateServiceTeamsForUser: ERROR %s is NOT A registered project", team.Team.Name)
 		}
 	}
 
@@ -373,8 +373,7 @@ func CreateServiceTeamsForUser(
 }
 
 func MapFossaUserCollaborator(db *gorm.DB, email string, github string, user fossa.User) *model.Collaborator {
-	var c model.Collaborator
-	c = model.Collaborator{
+	c := model.Collaborator{
 		Model:         gorm.Model{},
 		Name:          user.FullName,
 		Email:         user.Email,

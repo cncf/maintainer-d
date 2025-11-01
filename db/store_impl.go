@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"maintainerd/model"
@@ -51,13 +52,18 @@ func (s *SQLStore) GetProjectsUsingService(serviceID uint) ([]model.Project, err
 }
 
 func (s *SQLStore) GetMaintainersByProject(projectID uint) ([]model.Maintainer, error) {
-	var maintainers []model.Maintainer
+	var project model.Project
 	err := s.db.
-		Joins("JOIN maintainer_projects mp ON mp.maintainer_id = maintainers.id").
-		Where("mp.project_id = ?", projectID).
-		Preload("Company").
-		Find(&maintainers).Error
-	return maintainers, err
+		Preload("Maintainers.Company").
+		First(&project, projectID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrProjectNotFound
+		}
+		return nil, err
+	}
+	return project.Maintainers, nil
+
 }
 
 func (s *SQLStore) GetServiceTeamByProject(projectID, serviceID uint) (*model.ServiceTeam, error) {
@@ -65,7 +71,7 @@ func (s *SQLStore) GetServiceTeamByProject(projectID, serviceID uint) (*model.Se
 	err := s.db.
 		Where("project_id = ? AND service_id = ?", projectID, serviceID).
 		First(&st).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return &st, err
@@ -97,76 +103,6 @@ func (s *SQLStore) GetMaintainerMapByGitHubAccount() (map[string]model.Maintaine
 		m[maintainer.GitHubAccount] = maintainer
 	}
 	return m, nil
-}
-
-// GetProjectMaintainersMap returns a map keyed by the project id which holds a list of Maintainers
-// associated with that project.
-func (s *SQLStore) GetProjectMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *SQLStore) getProjectIDMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
-// getProjectMaintainersMap returns a map keyed by the project name which holds a list of Maintainers
-// associated with that project.
-func (s *SQLStore) getProjectMaintainersMap() (map[string]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.Name] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
 }
 
 // GetProjectServiceTeamMap returns a map of projectID to ServiceTeams
@@ -209,28 +145,6 @@ func (s *SQLStore) GetProjectMapByName() (map[string]model.Project, error) {
 		projectsByName[p.Name] = p
 	}
 	return projectsByName, nil
-}
-
-func (s *SQLStore) GetProjectIDMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
 }
 
 func (s *SQLStore) LogAuditEvent(logger *zap.SugaredLogger, event model.AuditLog) error {

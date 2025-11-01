@@ -1,9 +1,12 @@
 .DS_Store
 .idea
 *.log
+*.env
 tmp/
 .envrc
 credentials.json
 demo.db
 .dirlocals.el
 ./db/db
+.gocache/
+coverage.out
