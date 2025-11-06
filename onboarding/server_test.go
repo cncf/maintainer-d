@@ -195,3 +195,198 @@ func TestFossaChosen_Basic(t *testing.T) {
 		assert.Contains(t, comments[0].Body, "CNCF FOSSA User")
 	})
 }
+
+func TestLabelCommand(t *testing.T) {
+	t.Run("successful label addition - fossa", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event with /label fossa command
+		event := createIssueCommentEvent(project.Name, "/label fossa", "alice", 100, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 1)
+		assert.Equal(t, "cncf", labels[0].Owner)
+		assert.Equal(t, "onboarding", labels[0].Repo)
+		assert.Equal(t, 100, labels[0].IssueNumber)
+		assert.Contains(t, labels[0].Labels, "fossa")
+
+		// Verify confirmation comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "@alice")
+		assert.Contains(t, comments[0].Body, "fossa")
+		assert.Contains(t, comments[0].Body, "CNCF FOSSA")
+	})
+
+	t.Run("successful label addition - snyk", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event with /label snyk command
+		event := createIssueCommentEvent(project.Name, "/label snyk", "bob", 101, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 1)
+		assert.Contains(t, labels[0].Labels, "snyk")
+
+		// Verify confirmation comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "@bob")
+		assert.Contains(t, comments[0].Body, "snyk")
+		assert.Contains(t, comments[0].Body, "CNCF Snyk")
+	})
+
+	t.Run("unauthorized user", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event from unauthorized user
+		event := createIssueCommentEvent(project.Name, "/label fossa", "unauthorized-user", 102, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify no label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 0)
+
+		// Verify error comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "@unauthorized-user")
+		assert.Contains(t, comments[0].Body, "not authorized")
+		assert.Contains(t, comments[0].Body, "registered maintainers")
+	})
+
+	t.Run("invalid label name", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event with invalid label
+		event := createIssueCommentEvent(project.Name, "/label invalid", "alice", 103, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify no label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 0)
+
+		// Verify error comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "Invalid label")
+		assert.Contains(t, comments[0].Body, "invalid")
+		assert.Contains(t, comments[0].Body, "fossa")
+		assert.Contains(t, comments[0].Body, "snyk")
+	})
+
+	t.Run("invalid command format", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event with invalid format
+		event := createIssueCommentEvent(project.Name, "/label", "alice", 104, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify no label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 0)
+
+		// Verify error comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "Invalid")
+		assert.Contains(t, comments[0].Body, "/label fossa")
+		assert.Contains(t, comments[0].Body, "/label snyk")
+	})
+
+	t.Run("project not found", func(t *testing.T) {
+		// Setup - no project seeded
+		database := setupTestDB(t)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event for non-existent project
+		event := createIssueCommentEvent("non-existent-project", "/label fossa", "alice", 105, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify no label was added
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 0)
+
+		// Verify error comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "not found")
+		assert.Contains(t, comments[0].Body, "maintainer-d database")
+	})
+
+	t.Run("case insensitive label names", func(t *testing.T) {
+		// Setup
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+		mockFossa := NewMockFossaClient()
+		mockGitHub := NewMockGitHubTransport()
+		server := createTestServer(t, database, mockFossa, mockGitHub)
+
+		// Create issue comment event with uppercase label
+		event := createIssueCommentEvent(project.Name, "/label FOSSA", "alice", 106, nil)
+		req, _ := http.NewRequest("POST", "/webhook", nil)
+
+		// Execute
+		server.handleLabelCommand(req, event)
+
+		// Verify label was added (normalized to lowercase)
+		labels := mockGitHub.GetAddedLabels()
+		require.Len(t, labels, 1)
+		assert.Contains(t, labels[0].Labels, "fossa")
+
+		// Verify confirmation comment
+		comments := mockGitHub.GetCreatedComments()
+		require.Len(t, comments, 1)
+		assert.Contains(t, comments[0].Body, "@alice")
+		assert.Contains(t, comments[0].Body, "fossa")
+	})
+}

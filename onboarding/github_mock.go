@@ -18,6 +18,7 @@ type MockGitHubTransport struct {
 	requests        []*http.Request
 	responses       map[string]*http.Response
 	createdComments []GitHubCommentCapture
+	addedLabels     []GitHubLabelCapture
 }
 
 // GitHubCommentCapture represents a captured comment creation
@@ -26,6 +27,14 @@ type GitHubCommentCapture struct {
 	Repo        string
 	IssueNumber int
 	Body        string
+}
+
+// GitHubLabelCapture represents a captured label addition
+type GitHubLabelCapture struct {
+	Owner       string
+	Repo        string
+	IssueNumber int
+	Labels      []string
 }
 
 // NewMockGitHubTransport creates a new mock GitHub HTTP transport
@@ -81,6 +90,46 @@ func (m *MockGitHubTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return resp, nil
 	}
 
+	// Capture label additions
+	if req.Method == "POST" && strings.Contains(req.URL.Path, "/issues/") && strings.HasSuffix(req.URL.Path, "/labels") {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(body))
+
+		// Parse labels from request body - it's a direct array
+		var labels []string
+		if err := json.Unmarshal(body, &labels); err != nil {
+			return nil, err
+		}
+
+		// Parse owner, repo, issue number from URL
+		// URL format: /repos/{owner}/{repo}/issues/{issue_number}/labels
+		parts := strings.Split(req.URL.Path, "/")
+		if len(parts) >= 6 {
+			issueNum, err := strconv.Atoi(parts[5])
+			if err != nil {
+				return nil, err
+			}
+			capture := GitHubLabelCapture{
+				Owner:       parts[2],
+				Repo:        parts[3],
+				IssueNumber: issueNum,
+				Labels:      labels,
+			}
+			m.addedLabels = append(m.addedLabels, capture)
+		}
+
+		// Return success response
+		resp := &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewReader([]byte(`[{"name": "test"}]`))),
+			Header:     make(http.Header),
+		}
+		return resp, nil
+	}
+
 	// Return configured response or default 200
 	key := req.Method + " " + req.URL.Path
 	if resp, ok := m.responses[key]; ok {
@@ -101,6 +150,13 @@ func (m *MockGitHubTransport) GetCreatedComments() []GitHubCommentCapture {
 	return append([]GitHubCommentCapture{}, m.createdComments...)
 }
 
+// GetAddedLabels returns all captured label additions
+func (m *MockGitHubTransport) GetAddedLabels() []GitHubLabelCapture {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]GitHubLabelCapture{}, m.addedLabels...)
+}
+
 // GetRequests returns all captured HTTP requests
 func (m *MockGitHubTransport) GetRequests() []*http.Request {
 	m.mu.Lock()
@@ -114,6 +170,7 @@ func (m *MockGitHubTransport) Reset() {
 	defer m.mu.Unlock()
 	m.requests = nil
 	m.createdComments = nil
+	m.addedLabels = nil
 }
 
 // SetResponse configures a custom response for a specific request

@@ -27,8 +27,41 @@ store them in the maintainer-d database.
 
 # FOSSA User Onboarding Workflow
 
-1. When a project chooses to use FOSSA for license scanning CNCF Staff member can
-add the fossa label to indicate that choice.
+## Label Command
+
+Registered project maintainers can use the `/label` command to indicate their preference for license scanning tools. This command adds either the `fossa` or `snyk` label to the project's onboarding issue.
+
+### Usage
+
+```
+/label fossa
+```
+or
+```
+/label snyk
+```
+
+### Authorization
+
+Only registered maintainers in the maintainer-d database can execute this command. When an unauthorized user attempts to use the command, they will receive a notification that they are not authorized.
+
+### Workflow
+
+1. When a registered maintainer wants to indicate their preference for a license scanning tool, they can add a comment with the `/label` command followed by either `fossa` or `snyk`.
+
+2. The maintainer-d server validates that:
+   - The command format is correct
+   - The label name is either `fossa` or `snyk`
+   - The user is a registered maintainer for the project
+   - The project exists in the maintainer-d database
+
+3. If validation passes, the server adds the requested label to the issue.
+
+4. A confirmation comment is posted indicating which tool was selected.
+
+## FOSSA Onboarding Process
+
+1. When a project chooses to use FOSSA for license scanning, a registered maintainer or CNCF Staff member can add the fossa label using the `/label fossa` command or by manually adding the label.
 
 2. Labelling the issue triggers an event that is sent to the maintainer-d webhook.
 
