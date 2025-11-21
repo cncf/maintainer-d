@@ -3,9 +3,10 @@ package model
 import (
 	"database/sql/driver"
 	"fmt"
-	"gorm.io/gorm"
 	"net/url"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type MaintainerStatus string
@@ -80,7 +81,7 @@ func (m Maturity) IsValid() bool {
 // Optionally, a Maintainer
 //
 //		has a Company Affiliation
-//	  	TODO kubernetes specific may or may not have have voting rights on a Project,
+//	  	Fot kubernetes specifically, a maintainer or may not have voting rights on a Project,
 //	    has a status of Active, Emeritus or Retired
 type Maintainer struct {
 	gorm.Model

@@ -31,6 +31,8 @@ func GetProjectNameFromProjectTitle(title string) (string, error) {
 }
 
 // getOnboardingTasks parses the body of an onboarding issue and returns the tasks listed in the checklists.
+//
+//lint:ignore U1000 This function will be used in future implementation
 func getOnboardingTasks(projectName, issueDescription string) []Task {
 	var tasks []Task
 	scanner := bufio.NewScanner(strings.NewReader(issueDescription))

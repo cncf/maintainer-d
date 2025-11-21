@@ -90,6 +90,16 @@ DOCKER_REGISTRY_PASSWORD ?= $(GITHUB_GHCR_TOKEN)
 # ---- Helpers ----
 .PHONY: help
 help:
+	@echo "== Testing =="
+	@echo "make test            -> run all tests"
+	@echo "make test-verbose    -> run tests with verbose output"
+	@echo "make test-coverage   -> run tests with coverage report"
+	@echo "make test-race       -> run tests with race detector"
+	@echo "make test-package    -> run tests for specific package (use PKG=...)"
+	@echo "make ci-local        -> run all CI checks locally (fmt, vet, staticcheck, test)"
+	@echo "make lint            -> run linters (requires golangci-lint)"
+	@echo ""
+	@echo "== Deployment =="
 	@echo "make secrets         -> build $(ENVOUT) from $(ENVSRC) and apply both Secrets"
 	@echo "make env             -> build $(ENVOUT) from $(ENVSRC)"
 	@echo "make apply-env       -> create/update $(ENV_SECRET_NAME) from $(ENVOUT)"
@@ -258,3 +268,88 @@ kcp-generate:
 		cp $$TMP_DIR/apiexport-maintainer-d.cncf.io.yaml $(KCP_SCHEMA_DIR)/api-export.yaml; \
 		rm -rf $$TMP_DIR; \
 		echo "Updated APIExport and APIResourceSchemas in $(KCP_SCHEMA_DIR)"
+
+# ---- Testing and CI ----
+.PHONY: test
+test:
+	@echo "Running tests..."
+	@go test ./...
+
+.PHONY: test-verbose
+test-verbose:
+	@echo "Running tests with verbose output..."
+	@go test -v ./...
+
+.PHONY: test-coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@go test -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -func=coverage.out | tail -n 1
+	@echo "To view HTML coverage report: go tool cover -html=coverage.out"
+
+.PHONY: test-race
+test-race:
+	@echo "Running tests with race detector..."
+	@go test -race ./...
+
+.PHONY: test-package
+test-package:
+	@if [ -z "$(PKG)" ]; then \
+		echo "Usage: make test-package PKG=<package>"; \
+		echo "Example: make test-package PKG=onboarding"; \
+		exit 1; \
+	fi
+	@echo "Running tests for package: $(PKG)"
+	@go test -v ./$(PKG)/...
+
+.PHONY: ci-local
+ci-local:
+	@echo "Running local CI checks..."
+	@echo "→ Verifying dependencies..."
+	@go mod verify
+	@echo "→ Running go fmt..."
+	@if [ "$$(gofmt -s -l . | wc -l)" -gt 0 ]; then \
+		echo "❌ Code needs formatting. Run: go fmt ./..."; \
+		gofmt -s -l .; \
+		exit 1; \
+	fi
+	@echo "→ Running go vet..."
+	@go vet ./...
+	@echo "→ Running staticcheck..."
+	@if command -v staticcheck >/dev/null 2>&1; then \
+		staticcheck ./...; \
+	else \
+		echo "⚠️  staticcheck not installed. Run: go install honnef.co/go/tools/cmd/staticcheck@latest"; \
+	fi
+	@echo "→ Running golangci-lint..."
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "⚠️  golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+	fi
+	@echo "→ Running tests with race detector..."
+	@go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	@echo "→ Coverage report:"
+	@go tool cover -func=coverage.out | tail -n 1
+	@echo "✅ All CI checks passed!"
+
+.PHONY: lint
+lint:
+	@echo "Running golangci-lint..."
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not installed."; \
+		echo "Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		exit 1; \
+	fi
+
+.PHONY: fmt
+fmt:
+	@echo "Formatting code..."
+	@go fmt ./...
+
+.PHONY: vet
+vet:
+	@echo "Running go vet..."
+	@go vet ./...

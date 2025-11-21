@@ -1,4 +1,6 @@
 # maintainerd
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FRobertKielty%2Fmaintainerd.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FRobertKielty%2Fmaintainerd?ref=badge_shield)
+
 
 maintainerd is a database-backed application that tracks Maintainers that work on CNCF Projects using multiple datasources.
 
@@ -96,3 +98,7 @@ Use environment variables `ORG` and `REPO` to point the server at a different Gi
 
   - Public comments never include email addresses; only GitHub handles are shown.
   - If the team does not exist, the server comments instructions to add the `fossa` label first and retry.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FRobertKielty%2Fmaintainerd.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FRobertKielty%2Fmaintainerd?ref=badge_large)

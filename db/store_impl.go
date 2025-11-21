@@ -2,13 +2,15 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"go.uber.org/zap"
-	"gorm.io/gorm"
 	"log"
 	"maintainerd/model"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type SQLStore struct {
@@ -50,13 +52,18 @@ func (s *SQLStore) GetProjectsUsingService(serviceID uint) ([]model.Project, err
 }
 
 func (s *SQLStore) GetMaintainersByProject(projectID uint) ([]model.Maintainer, error) {
-	var maintainers []model.Maintainer
+	var project model.Project
 	err := s.db.
-		Joins("JOIN maintainer_projects mp ON mp.maintainer_id = maintainers.id").
-		Where("mp.project_id = ?", projectID).
-		Preload("Company").
-		Find(&maintainers).Error
-	return maintainers, err
+		Preload("Maintainers.Company").
+		First(&project, projectID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrProjectNotFound
+		}
+		return nil, err
+	}
+	return project.Maintainers, nil
+
 }
 
 func (s *SQLStore) GetServiceTeamByProject(projectID, serviceID uint) (*model.ServiceTeam, error) {
@@ -64,7 +71,7 @@ func (s *SQLStore) GetServiceTeamByProject(projectID, serviceID uint) (*model.Se
 	err := s.db.
 		Where("project_id = ? AND service_id = ?", projectID, serviceID).
 		First(&st).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return &st, err
@@ -98,76 +105,6 @@ func (s *SQLStore) GetMaintainerMapByGitHubAccount() (map[string]model.Maintaine
 	return m, nil
 }
 
-// GetProjectMaintainersMap returns a map keyed by the project id which holds a list of Maintainers
-// associated with that project.
-func (s *SQLStore) GetProjectMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *SQLStore) getProjectIDMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
-// getProjectMaintainersMap returns a map keyed by the project name which holds a list of Maintainers
-// associated with that project.
-func (s *SQLStore) getProjectMaintainersMap() (map[string]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.Name] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
 // GetProjectServiceTeamMap returns a map of projectID to ServiceTeams
 // for every Project that uses the service identified by serviceId
 func (s *SQLStore) GetProjectServiceTeamMap(serviceName string) (map[uint]*model.ServiceTeam, error) {
@@ -196,7 +133,10 @@ func (s *SQLStore) GetProjectServiceTeamMap(serviceName string) (map[uint]*model
 }
 func (s *SQLStore) GetProjectMapByName() (map[string]model.Project, error) {
 	var projects []model.Project
-	if err := s.db.Find(&projects).Error; err != nil {
+	if err := s.db.
+		Preload("Maintainers").
+		Preload("Maintainers.Company").
+		Find(&projects).Error; err != nil {
 		return nil, err
 	}
 
@@ -207,47 +147,15 @@ func (s *SQLStore) GetProjectMapByName() (map[string]model.Project, error) {
 	return projectsByName, nil
 }
 
-func (s *SQLStore) GetProjectIDMaintainersMap() (map[uint]model.ProjectInfo, error) {
-	var projects []model.Project
-
-	// Preload the many-to-many relationship
-	err := s.db.Preload("Maintainers").Find(&projects).Error
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[uint]model.ProjectInfo)
-
-	for _, project := range projects {
-		result[project.ID] = model.ProjectInfo{
-			Project:     project,
-			Maintainers: project.Maintainers,
-			Services:    project.Services,
-		}
-	}
-
-	return result, nil
-}
-
-func (s *SQLStore) LogAuditEvent(logger *zap.SugaredLogger, event model.AuditLog) error {
+func (s *SQLStore) LogAuditEvent(logger *zap.SugaredLogger, event model.AuditLog) {
 	if event.Message == "" {
 		event.Message = event.Action
 	}
 
 	err := s.db.WithContext(context.Background()).Create(&event).Error
 	if err != nil {
-		logger.Errorf("failed to write audit log: %v", err)
-		return err
+		logger.Errorf("failed to write %v audit log: %v", event, err)
 	}
-
-	logger.Infow("audit log recorded",
-		"project_id", event.ProjectID,
-		"maintainer_id", event.MaintainerID,
-		"service_id", event.ServiceID,
-		"action", event.Action,
-		"message", event.Message,
-	)
-	return nil
 }
 
 // CreateServiceTeam creates or retrieves a service team entry in the database based on the provided project and service details.

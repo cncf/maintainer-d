@@ -2,27 +2,26 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"maintainerd/plugins/fossa"
 	"os"
 )
 
 const (
-	apiTokenEnvVar = "FOSSA_API_TOKEN"
+	apiTokenEnvVar = "FOSSA_API_TOKEN" //nolint:gosec
 )
 
 func main() {
 	token := os.Getenv(apiTokenEnvVar)
 	if token == "" {
-		fmt.Fprintf(os.Stderr, "please set $%s\n", apiTokenEnvVar)
-		os.Exit(1)
+		log.Fatalf("please set $%s\n", apiTokenEnvVar)
 	}
 	fossaClient := fossa.NewClient(token)
 
 	teams, err := fossaClient.FetchTeams()
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error fetching teams: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("error fetching teams: %v\n", err)
 	}
 	fmt.Println("Your teams:")
 	for _, t := range teams {
@@ -36,22 +35,19 @@ func main() {
 
 	// 2) pick a team ID on the CLI
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <teamName>\n", os.Args[0])
-		os.Exit(1)
+		log.Fatalf("usage: %s <teamName>\n", os.Args[0])
 	}
 	teamName := os.Args[1]
 
 	teamID, err := fossaClient.GetTeamId(teams, teamName)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error fetching team: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("error fetching team: %v", err)
 	}
 
 	emails, err := fossaClient.FetchTeamUserEmails(teamID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error fetching users: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("error fetching users: %v", err)
 	}
 
 	fmt.Println("Team members’ emails:")

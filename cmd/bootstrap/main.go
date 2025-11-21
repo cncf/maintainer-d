@@ -15,17 +15,15 @@ import (
 )
 
 const (
-	apiTokenEnvVar             = "FOSSA_API_TOKEN"
+	apiTokenEnvVar             = "FOSSA_API_TOKEN" //nolint:gosec
 	spreadsheetEnvVar          = "MD_WORKSHEET"
-	googleWorkspaceCredentials = "WORKSPACE_CREDENTIALS_FILE"
-	defaultReadRange           = "Active!A1:J2100"
+	googleWorkspaceCredentials = "WORKSPACE_CREDENTIALS_FILE" //nolint:gosec
 	defaultDBPath              = "maintainers.db"
 	defaultMaxBackups          = 5
 	backupFileExt              = ".bak"
 )
 
 func main() {
-	var readRange string
 	var dbPath string
 	var seed bool
 	var doBackup bool
@@ -64,7 +62,7 @@ func main() {
 					pruneOldBackups(dbPath, maxBackups)
 				}
 			}
-			_, err := db.BootstrapSQLite(dbPath, spreadsheetID, readRange, credentialsPath, fossaToken, seed)
+			_, err := db.BootstrapSQLite(dbPath, spreadsheetID, credentialsPath, fossaToken, seed)
 			if err != nil {
 				log.Fatalf("bootstrap failed: %v", err)
 			}
@@ -72,7 +70,6 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVar(&readRange, "range", defaultReadRange, "Google Sheet read range")
 	rootCmd.Flags().StringVar(&dbPath, "db", defaultDBPath, "Path to SQLite database file")
 	rootCmd.Flags().BoolVar(&seed, "seed", true, "Whether to load seed data into the database")
 	rootCmd.Flags().BoolVar(&doBackup, "backup", true, "Whether to create a backup of the database if it exists")
@@ -97,13 +94,23 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer source.Close()
+	defer func(source *os.File) {
+		err := source.Close()
+		if err != nil {
+			log.Printf("warning: failed to close file %s: %v", src, err)
+		}
+	}(source)
 
 	destination, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer destination.Close()
+	defer func(destination *os.File) {
+		err := destination.Close()
+		if err != nil {
+			log.Printf("warning: failed to close file %s: %v", dst, err)
+		}
+	}(destination)
 
 	_, err = destination.ReadFrom(source)
 	return err
