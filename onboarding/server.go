@@ -87,6 +87,37 @@ func (s *EventListener) Run(addr string) error {
 	}
 	return server.ListenAndServe()
 }
+
+func (s *EventListener) isAuthorizedForProjectAction(actor string, project model.Project, issue *github.Issue) bool {
+	// Check if actor is a registered maintainer for this project.
+	if maintainers, err := s.Store.GetMaintainersByProject(project.ID); err == nil {
+		for _, m := range maintainers {
+			if m.GitHubAccount == actor {
+				return true
+			}
+		}
+	}
+
+	// CNCF/LF staff may also execute onboarding commands.
+	if ok, err := s.Store.IsStaffGitHubAccount(actor); err == nil && ok {
+		return true
+	}
+
+	// Also allow any GitHub handle assigned to the onboarding issue.
+	if issue != nil {
+		for _, u := range issue.Assignees {
+			if u.GetLogin() == actor {
+				return true
+			}
+		}
+		if a := issue.GetAssignee(); a != nil && a.GetLogin() == actor {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (s *EventListener) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	payload, err := github.ValidatePayload(r, s.Secret)
 	if err != nil {
@@ -133,35 +164,8 @@ func (s *EventListener) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 		// Authorization: allow project maintainers or CNCF Project Team handles (via env var list)
 		actor := e.GetComment().GetUser().GetLogin()
-		isAuthorized := false
-		// Check if actor is a registered maintainer for this project
-		if maintainers, err := s.Store.GetMaintainersByProject(project.ID); err == nil {
-			for _, m := range maintainers {
-				if m.GitHubAccount == actor {
-					isAuthorized = true
-					break
-				}
-			}
-		}
-		if !isAuthorized {
-			// Also allow any GitHub handle assigned to the onboarding issue
-			if issue := e.GetIssue(); issue != nil {
-				// Check array of assignees
-				for _, u := range issue.Assignees {
-					if u.GetLogin() == actor {
-						isAuthorized = true
-						break
-					}
-				}
-				// Fallback: single assignee field
-				if !isAuthorized {
-					if a := issue.GetAssignee(); a != nil && a.GetLogin() == actor {
-						isAuthorized = true
-					}
-				}
-			}
-		}
-		if !isAuthorized {
+
+		if !s.isAuthorizedForProjectAction(actor, project, e.GetIssue()) {
 			// Post an authorization failure comment and return
 			comment := "You are not authorized to perform this action."
 			if err := s.updateIssue(r.Context(), e.GetRepo().GetOwner().GetLogin(), e.GetRepo().GetName(), e.GetIssue().GetNumber(), comment); err != nil {
@@ -317,6 +321,15 @@ func (s *EventListener) handleLabelCommand(r *http.Request, e *github.IssueComme
 				isAuthorized = true
 				break
 			}
+		}
+	}
+
+	// CNCF/LF staff may also execute onboarding commands.
+	if !isAuthorized {
+		if ok, err := s.Store.IsStaffGitHubAccount(actor); err != nil {
+			log.Printf("handleLabelCommand: WRN, failed to check staff authorization for @%s: %v", actor, err)
+		} else if ok {
+			isAuthorized = true
 		}
 	}
 

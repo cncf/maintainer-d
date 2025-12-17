@@ -11,3 +11,4 @@ demo.db
 .gocache/
 .modcache/
 coverage.out
+.kcp/

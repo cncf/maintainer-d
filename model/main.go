@@ -130,6 +130,27 @@ type Company struct {
 	gorm.Model
 	Name string `gorm:"uniqueIndex"`
 }
+
+// A Foundation represents an organization that employs Staff members working with
+// CNCF projects (e.g., CNCF and LF).
+type Foundation struct {
+	gorm.Model
+	Name string `gorm:"uniqueIndex"`
+}
+
+// A StaffMember is a CNCF/LF staff member who may perform operations across projects.
+// Staff members are associated with a Foundation (not a Project).
+type StaffMember struct {
+	gorm.Model
+	Name          string
+	Email         string `gorm:"size:254;default:EMAIL_MISSING"`
+	GitHubAccount string `gorm:"size:100;default:GITHUB_MISSING"`
+	GitHubEmail   string `gorm:"size:254;default:GITHUB_EMAIL_MISSING"`
+	RegisteredAt  *time.Time
+
+	FoundationID *uint `gorm:"index"`
+	Foundation   Foundation
+}
 type Service struct {
 	gorm.Model
 	Name        string `gorm:"uniqueIndex"`
@@ -177,7 +198,10 @@ type FoundationOfficer struct {
 	GitHubAccount string `gorm:"size:100;default:GITHUB_MISSING"`
 	RegisteredAt  *time.Time
 	CompanyID     *uint
-	Services      []ServiceUser
+	// Services represent user identities on external services (e.g., FOSSA) that
+	// this officer can operate as. This is a many-to-many relationship because a
+	// service user could (in theory) be shared across officers.
+	Services []ServiceUser `gorm:"many2many:foundation_officer_service_users;constraint:OnDelete:CASCADE"`
 }
 
 type ReconciliationResult struct {

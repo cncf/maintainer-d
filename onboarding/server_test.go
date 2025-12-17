@@ -8,6 +8,8 @@ import (
 	"github.com/google/go-github/v55/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"maintainerd/model"
 )
 
 func TestMockInfrastructure(t *testing.T) {
@@ -408,5 +410,37 @@ func TestLabelCommand(t *testing.T) {
 		require.Len(t, comments, 1)
 		assert.Contains(t, comments[0].Body, "@alice")
 		assert.Contains(t, comments[0].Body, "fossa")
+	})
+}
+
+func TestFossaInviteAcceptedAuthorization(t *testing.T) {
+	t.Run("staff member is authorized", func(t *testing.T) {
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+
+		// Seed staff member
+		f := model.Foundation{Name: "CNCF"}
+		require.NoError(t, database.Create(&f).Error)
+		staff := model.StaffMember{
+			Name:          "Carol Staff",
+			Email:         "carol@example.com",
+			GitHubAccount: "carol",
+			FoundationID:  &f.ID,
+		}
+		require.NoError(t, database.Create(&staff).Error)
+
+		server := createTestServer(t, database, NewMockFossaClient(), NewMockGitHubTransport())
+
+		ok := server.isAuthorizedForProjectAction("carol", project, &github.Issue{})
+		assert.True(t, ok)
+	})
+
+	t.Run("non staff/non maintainer/non assignee is not authorized", func(t *testing.T) {
+		database := setupTestDB(t)
+		project, _ := seedProjectData(t, database)
+
+		server := createTestServer(t, database, NewMockFossaClient(), NewMockGitHubTransport())
+		ok := server.isAuthorizedForProjectAction("mallory", project, &github.Issue{})
+		assert.False(t, ok)
 	})
 }
