@@ -2,9 +2,6 @@ version: "2"
 run:
   modules-download-mode: readonly
   tests: true
-  skip-dirs:
-    - .modcache
-    - .gocache
 linters:
   enable:
     - bodyclose
@@ -64,6 +61,8 @@ linters:
           - govet
         path: (cmd/bootstrap|plugins/fossa/client)\.go
     paths:
+      - \.modcache/
+      - \.gocache/
       - third_party$
       - builtin$
       - examples$
@@ -77,6 +76,8 @@ formatters:
   exclusions:
     generated: lax
     paths:
+      - \.modcache/
+      - \.gocache/
       - third_party$
       - builtin$
       - examples$

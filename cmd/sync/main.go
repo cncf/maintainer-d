@@ -58,8 +58,12 @@ func openDB(path string) (*gorm.DB, error) {
 
 func newClient() (client.Client, error) {
 	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = apis.AddToScheme(scheme)
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add client-go scheme: %w", err)
+	}
+	if err := apis.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add maintainer-d scheme: %w", err)
+	}
 
 	restCfg, err := ctrl.GetConfig()
 	if err != nil {
