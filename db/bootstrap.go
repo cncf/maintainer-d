@@ -23,6 +23,8 @@ const (
 	StatusHdr            string = "Status"
 	ProjectHdr           string = "Project"
 	MaintainerNameHdr    string = "Maintainer Name"
+	StaffMemberNameHdr   string = "Staff Member Name"
+	FoundationHdr        string = "Foundation"
 	CompanyNameHdr       string = "Company"
 	EmailHdr             string = "Emails"
 	GitHubHdr            string = "Github Name"
@@ -53,8 +55,11 @@ func BootstrapSQLite(dbPath, spreadsheetID, worksheetCredentialsPath, fossaToken
 
 	if err := db.AutoMigrate(
 		&model.Company{},
+		&model.Foundation{},
 		&model.Project{},
 		&model.Maintainer{},
+		&model.StaffMember{},
+		&model.FoundationOfficer{},
 		&model.Collaborator{},
 		&model.MaintainerProject{},
 		&model.Service{},
@@ -91,6 +96,10 @@ func BootstrapSQLite(dbPath, spreadsheetID, worksheetCredentialsPath, fossaToken
 		return nil, fmt.Errorf("bootstrap: failed to load maintainers and projects: %w", err)
 	}
 
+	if err := loadStaff(db, spreadsheetID, worksheetCredentialsPath); err != nil {
+		return nil, fmt.Errorf("bootstrap: failed to load staff: %w", err)
+	}
+
 	//fossaService := model.Service{Model: gorm.Model{ID: 1}, Name: "FOSSA"}
 	if err := loadFOSSA(db, fossaToken); err != nil {
 		return nil, fmt.Errorf("bootstrap: failed to load FOSSA projects: %w", err)
@@ -115,44 +124,49 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, credentialsPath stri
 		return err
 	}
 
-	rows, err := readSheetRows(ctx, srv, spreadsheetID)
+	rows, err := readSheetRows(
+		ctx,
+		srv,
+		spreadsheetID,
+		"Active!A:J",
+		ProjectHdr,
+		StatusHdr,
+		MaintainerFileRefHdr,
+		MailingListAddrHdr,
+	)
 
 	if err != nil {
 		log.Fatalf("maintainerd-backend: loadMaintainersAndProjects - readSheetRows: %v", err)
 		return err
 	}
 
-	var currentMaintainerRef string
-	var currentMailingList string
-
 	for _, row := range rows {
-		var missingMaintainerFields []string
-		log.Printf("TRACE, reading row, %v\n", row)
+		projectName := row[ProjectHdr]
+		if projectName == "" {
+			log.Printf("WARN, loadMaintainersAndProjects: skipping row with empty %q: %v", ProjectHdr, row)
+			continue
+		}
+
 		name := row[MaintainerNameHdr]
-
-		if name == "" {
-			missingMaintainerFields = append(missingMaintainerFields, ":"+MaintainerNameHdr)
-		}
-
-		company := row[CompanyNameHdr]
-		if company == "" {
-			missingMaintainerFields = append(missingMaintainerFields, ":"+CompanyNameHdr)
-		}
-
+		companyName := row[CompanyNameHdr]
 		email := row[EmailHdr]
-		if email == "" {
-			missingMaintainerFields = append(missingMaintainerFields, ":"+EmailHdr)
+		github := row[GitHubHdr]
+		githubEmail := row[GitHubEmail]
+
+		maintainerRef := row[MaintainerFileRefHdr]
+		mailingList := row[MailingListAddrHdr]
+		var mailingListPtr *string
+		if mailingList != "" {
+			mailingListPtr = &mailingList
 		}
 
-		github := row[GitHubHdr]
-		if github == "" {
-			missingMaintainerFields = append(missingMaintainerFields, ":"+GitHubHdr)
+		// Some sheets include rows that only exist to carry project metadata.
+		// Only create/update a maintainer if we have a stable identifier.
+		createMaintainer := email != ""
+		if !createMaintainer && (name != "" || github != "" || githubEmail != "" || companyName != "") {
+			log.Printf("WARN, loadMaintainersAndProjects: skipping maintainer row for project %q due to missing %q: %v", projectName, EmailHdr, row)
 		}
-		githubEmail := row[GitHubEmail]
-		if github == "" {
-			missingMaintainerFields = append(missingMaintainerFields, ":"+GitHubHdr)
-		}
-		log.Printf("DEBUG, processing maintainer %s, missing fields %v \n", row[MaintainerNameHdr], missingMaintainerFields)
+
 		var parent model.Project
 		if parentName := row[ParentProjectHdr]; parentName != "" {
 			if err := db.Where("name = ?", parentName).
@@ -166,51 +180,156 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, credentialsPath stri
 				log.Printf("INFO, project '%s' will be associated with parent project '%s' (ID: %d)", row[ProjectHdr], parentName, parent.ID)
 			}
 		}
-		currentMaintainerRef = row[MaintainerFileRefHdr]
-		currentMailingList = row[MailingListAddrHdr]
 
 		if err := db.Transaction(func(tx *gorm.DB) error {
 			var project model.Project
 			if parent.Name == "" {
 				project = model.Project{
-					Name:          row[ProjectHdr],
+					Name:          projectName,
 					Maturity:      model.Maturity(row[StatusHdr]),
-					MaintainerRef: currentMaintainerRef,
-					MailingList:   &currentMailingList,
+					MaintainerRef: maintainerRef,
+					MailingList:   mailingListPtr,
 				}
 			} else {
 				project = model.Project{
-					Name:            row[ProjectHdr],
+					Name:            projectName,
 					Maturity:        parent.Maturity,
-					MaintainerRef:   currentMaintainerRef,
-					MailingList:     &currentMailingList,
+					MaintainerRef:   maintainerRef,
+					MailingList:     mailingListPtr,
 					ParentProjectID: &parent.ID,
 				}
 			}
 			if err := tx.FirstOrCreate(&project, model.Project{Name: project.Name}).Error; err != nil {
 				return fmt.Errorf("ERR, loadMaintainersAndProjects - failed calling FirstOrCreate on project %v: error %v", project, err)
 			}
-			company := model.Company{Name: company}
-			if err := tx.FirstOrCreate(&company, model.Company{Name: company.Name}).Error; err != nil {
-				return fmt.Errorf("ERR, loadMaintainersAndProjects - failed calling FirstOrCreate on company %v: error %v", company, err)
+
+			if !createMaintainer {
+				return nil
 			}
+
+			company := model.Company{Name: companyName}
+			if companyName != "" {
+				if err := tx.FirstOrCreate(&company, model.Company{Name: company.Name}).Error; err != nil {
+					return fmt.Errorf("ERR, loadMaintainersAndProjects - failed calling FirstOrCreate on company %v: error %v", company, err)
+				}
+			}
+
 			maintainer := model.Maintainer{
 				Name:             name,
 				GitHubAccount:    github,
 				GitHubEmail:      githubEmail,
 				Email:            email,
-				CompanyID:        &company.ID,
 				MaintainerStatus: model.ActiveMaintainer,
 			}
-			if err := tx.FirstOrCreate(&maintainer, model.Maintainer{Email: maintainer.Email}).Error; err != nil {
+			if company.ID != 0 {
+				maintainer.CompanyID = &company.ID
+			}
+
+			if err := tx.Where("email = ?", email).FirstOrCreate(&maintainer).Error; err != nil {
 				return fmt.Errorf("ERR, loadMaintainersAndProjects - failed calling FirstOrCreate on maintainer %v: error %v", maintainer, err)
 			}
+
 			// Ensure the association (in case the maintainer existed already)
-			return tx.Model(&maintainer).
-				Association("Projects").
-				Append(&project)
+			return tx.Model(&maintainer).Association("Projects").Append(&project)
 		}); err != nil {
 			log.Printf("WARN, loadMaintainersAndProjects Database transaction not committed, row skipped %v : error %v ", row, err)
+		}
+	}
+	return nil
+}
+
+// Reads data from spreadsheetID inserts it into db.
+func loadStaff(db *gorm.DB, spreadsheetID, credentialsPath string) error {
+	ctx := context.Background()
+
+	srv, err := sheets.NewService(
+		ctx,
+		option.WithCredentialsFile(credentialsPath),
+		option.WithScopes(sheets.SpreadsheetsReadonlyScope),
+	)
+
+	if err != nil {
+		log.Fatalf("maintainerd: backend: loadStaff: unable to retrieve Sheets client: %v", err)
+		return err
+	}
+
+	rows, err := readSheetRows(
+		ctx,
+		srv,
+		spreadsheetID,
+		"Staff!A:F",
+		FoundationHdr,
+	)
+
+	if err != nil {
+		log.Fatalf("maintainerd-backend: loadStaff - readSheetRows: %v", err)
+		return err
+	}
+
+	for _, row := range rows {
+		foundationName := row[FoundationHdr]
+		name := row[StaffMemberNameHdr]
+		if name == "" {
+			// Backwards-compat if the sheet reuses the maintainer header.
+			name = row[MaintainerNameHdr]
+		}
+		email := row[EmailHdr]
+		github := row[GitHubHdr]
+		githubEmail := row[GitHubEmail]
+
+		if foundationName == "" && name == "" && email == "" && github == "" && githubEmail == "" {
+			continue
+		}
+
+		var missing []string
+		if foundationName == "" {
+			missing = append(missing, FoundationHdr)
+		}
+		if email == "" {
+			missing = append(missing, EmailHdr)
+		}
+		if len(missing) > 0 {
+			log.Printf("WARN, loadStaff: skipping row due to missing %v: %v", missing, row)
+			continue
+		}
+
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			foundation := model.Foundation{Name: foundationName}
+			if err := tx.FirstOrCreate(&foundation, model.Foundation{Name: foundation.Name}).Error; err != nil {
+				return fmt.Errorf("loadStaff: failed to upsert foundation %q: %w", foundationName, err)
+			}
+
+			var staff model.StaffMember
+			err := tx.Where("email = ?", email).First(&staff).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				staff = model.StaffMember{
+					Name:          name,
+					Email:         email,
+					GitHubAccount: github,
+					GitHubEmail:   githubEmail,
+					FoundationID:  &foundation.ID,
+				}
+				if err := tx.Create(&staff).Error; err != nil {
+					return fmt.Errorf("loadStaff: failed to create staff member %q (%s): %w", name, email, err)
+				}
+				return nil
+			case err != nil:
+				return fmt.Errorf("loadStaff: failed to lookup staff member by email %q: %w", email, err)
+			default:
+				updates := map[string]interface{}{
+					"name":            name,
+					"git_hub_account": github,
+					"git_hub_email":   githubEmail,
+					"foundation_id":   foundation.ID,
+				}
+				if err := tx.Model(&staff).Updates(updates).Error; err != nil {
+					return fmt.Errorf("loadStaff: failed to update staff member %q (%s): %w", name, email, err)
+				}
+				return nil
+			}
+		}); err != nil {
+			log.Printf("WARN, loadStaff: database transaction not committed, row skipped %v : error %v ", row, err)
 		}
 	}
 	return nil
@@ -220,13 +339,13 @@ func loadMaintainersAndProjects(db *gorm.DB, spreadsheetID, credentialsPath stri
 // Status values when those cells are blank or missing.
 // The readRange must include the header row.
 // The
-func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID string) ([]map[string]string, error) {
+func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID, readRange string, carryForwardHeaders ...string) ([]map[string]string, error) {
 	resp, err := srv.Spreadsheets.Values.
-		Get(spreadsheetID, "Active!A:J").
+		Get(spreadsheetID, readRange).
 		Context(ctx).
 		Do()
 	if err != nil {
-		return nil, fmt.Errorf("db: Using %s unable to retrieve worksheet data: %w", spreadsheetID, err)
+		return nil, fmt.Errorf("db: Using %s unable to retrieve worksheet data (%s): %w", spreadsheetID, readRange, err)
 	}
 	if len(resp.Values) == 0 {
 		return nil, fmt.Errorf("db: %s worksheet is empty", spreadsheetID)
@@ -238,23 +357,23 @@ func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID strin
 		headers[i] = strings.TrimSpace(fmt.Sprint(cell))
 	}
 
-	// Find the column indexes for "Project" and "Status"
-	projIdx, statIdx := -1, -1
-	for i, h := range headers {
-		switch h {
-		case "Project":
-			projIdx = i
-		case "Status":
-			statIdx = i
+	carryForwardIdx := make(map[int]struct{}, len(carryForwardHeaders))
+	for _, hdr := range carryForwardHeaders {
+		for i, h := range headers {
+			if h == hdr {
+				carryForwardIdx[i] = struct{}{}
+				break
+			}
 		}
 	}
 
 	var rows []map[string]string
-	var lastProject, lastStatus string
+	lastVals := make(map[int]string, len(carryForwardIdx))
 
 	// Remaining rows → maps
 	for _, r := range resp.Values[1:] {
 		rowMap := make(map[string]string, len(headers))
+		hasAnyValue := false
 
 		for i, h := range headers {
 			// read raw cell if present
@@ -262,23 +381,24 @@ func readSheetRows(ctx context.Context, srv *sheets.Service, spreadsheetID strin
 			if i < len(r) {
 				cellVal = strings.TrimSpace(fmt.Sprint(r[i]))
 			}
-
-			switch i {
-			case projIdx:
-				if cellVal != "" {
-					lastProject = cellVal
-				}
-				rowMap[h] = lastProject
-
-			case statIdx:
-				if cellVal != "" {
-					lastStatus = cellVal
-				}
-				rowMap[h] = lastStatus
-
-			default:
-				rowMap[h] = cellVal
+			if cellVal != "" {
+				hasAnyValue = true
 			}
+
+			if _, ok := carryForwardIdx[i]; ok {
+				if cellVal != "" {
+					lastVals[i] = cellVal
+				}
+				rowMap[h] = lastVals[i]
+				continue
+			}
+
+			rowMap[h] = cellVal
+		}
+
+		// Skip fully empty rows.
+		if !hasAnyValue {
+			continue
 		}
 
 		rows = append(rows, rowMap)

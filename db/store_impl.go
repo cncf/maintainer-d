@@ -190,3 +190,16 @@ func (s *SQLStore) ListCompanies() ([]model.Company, error) {
 	}
 	return companies, nil
 }
+
+// IsStaffGitHubAccount returns true if the GitHub account belongs to a staff member.
+func (s *SQLStore) IsStaffGitHubAccount(githubAccount string) (bool, error) {
+	if githubAccount == "" {
+		return false, nil
+	}
+	var count int64
+	err := s.db.
+		Model(&model.StaffMember{}).
+		Where("LOWER(git_hub_account) = ?", strings.ToLower(githubAccount)).
+		Count(&count).Error
+	return count > 0, err
+}
