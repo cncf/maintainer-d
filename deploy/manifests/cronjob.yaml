@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: maintainer-sync
+  namespace: maintainerd
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    metadata: {}
+    spec:
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 1
+      template:
+        metadata: {}
+        spec:
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: maintainerd
+                namespaces:
+                - maintainerd
+                topologyKey: kubernetes.io/hostname
+          containers:
+          - args:
+            - -db=/data/maintainers.db
+            - -namespace=maintainerd
+            image: ghcr.io/robertkielty/maintainerd-sync:latest
+            imagePullPolicy: Always
+            name: sync
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /data
+              name: maintainer-db
+          dnsPolicy: ClusterFirst
+          imagePullSecrets:
+          - name: ghcr-secret
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          serviceAccount: maintainer-sync
+          serviceAccountName: maintainer-sync
+          terminationGracePeriodSeconds: 30
+          volumes:
+          - name: maintainer-db
+            persistentVolumeClaim:
+              claimName: maintainerd-db
+  schedule: "*/30 * * * *"
+  successfulJobsHistoryLimit: 1
+  suspend: false
