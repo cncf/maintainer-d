@@ -58,8 +58,12 @@ func openDB(path string) (*gorm.DB, error) {
 
 func newClient() (client.Client, error) {
 	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = apis.AddToScheme(scheme)
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add client-go scheme: %w", err)
+	}
+	if err := apis.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add maintainer-d scheme: %w", err)
+	}
 
 	restCfg, err := ctrl.GetConfig()
 	if err != nil {
@@ -73,6 +77,9 @@ func syncAll(ctx context.Context, store *db.SQLStore, c client.Client, ns string
 	if err := syncCompanies(ctx, store, c, ns); err != nil {
 		return fmt.Errorf("companies: %w", err)
 	}
+	if err := syncStaff(ctx, store, c, ns); err != nil {
+		return fmt.Errorf("staffmembers: %w", err)
+	}
 	if err := syncMaintainers(ctx, store, c, ns); err != nil {
 		return fmt.Errorf("maintainers: %w", err)
 	}
@@ -81,6 +88,61 @@ func syncAll(ctx context.Context, store *db.SQLStore, c client.Client, ns string
 	}
 	if err := syncMemberships(ctx, store, c, ns); err != nil {
 		return fmt.Errorf("projectmemberships: %w", err)
+	}
+	return nil
+}
+
+func syncStaff(ctx context.Context, store *db.SQLStore, c client.Client, ns string) error {
+	staffMembers, err := store.ListStaffMembers()
+	if err != nil {
+		return err
+	}
+	for _, staff := range staffMembers {
+		nameSource := staff.Email
+		if nameSource == "" {
+			nameSource = staff.GitHubAccount
+		}
+		if nameSource == "" {
+			nameSource = staff.Name
+		}
+		name := sanitizeName(nameSource)
+		obj := &apis.StaffMember{}
+		key := client.ObjectKey{Name: name, Namespace: ns}
+		err := c.Get(ctx, key, obj)
+		var registeredAt *metav1.Time
+		if staff.RegisteredAt != nil {
+			t := metav1.NewTime(*staff.RegisteredAt)
+			registeredAt = &t
+		}
+		spec := apis.StaffMemberSpec{
+			DisplayName:   staff.Name,
+			PrimaryEmail:  staff.Email,
+			GitHubAccount: staff.GitHubAccount,
+			GitHubEmail:   staff.GitHubEmail,
+			RegisteredAt:  registeredAt,
+		}
+		if staff.FoundationID != nil && staff.Foundation.Name != "" {
+			spec.FoundationRef = &apis.ResourceReference{Name: sanitizeName(staff.Foundation.Name)}
+		}
+		if errors.IsNotFound(err) {
+			obj = &apis.StaffMember{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+				Spec:       spec,
+			}
+			if err := c.Create(ctx, obj); err != nil {
+				return fmt.Errorf("create staffmember %s: %w", name, err)
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !staffSpecEqual(obj.Spec, spec) {
+			obj.Spec = spec
+			if err := c.Update(ctx, obj); err != nil {
+				return fmt.Errorf("update staffmember %s: %w", name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -338,6 +400,23 @@ func maintainerSpecEqual(a, b apis.MaintainerSpec) bool {
 		return false
 	}
 	if a.CompanyRef != nil && a.CompanyRef.Name != b.CompanyRef.Name {
+		return false
+	}
+	return true
+}
+
+func staffSpecEqual(a, b apis.StaffMemberSpec) bool {
+	if a.DisplayName != b.DisplayName ||
+		a.PrimaryEmail != b.PrimaryEmail ||
+		a.GitHubAccount != b.GitHubAccount ||
+		a.GitHubEmail != b.GitHubEmail ||
+		!timePtrEqual(a.RegisteredAt, b.RegisteredAt) {
+		return false
+	}
+	if (a.FoundationRef == nil) != (b.FoundationRef == nil) {
+		return false
+	}
+	if a.FoundationRef != nil && a.FoundationRef.Name != b.FoundationRef.Name {
 		return false
 	}
 	return true

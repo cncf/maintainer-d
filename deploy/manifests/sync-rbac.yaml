@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: maintainer-sync
+  namespace: maintainerd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: maintainer-sync-writer
+  namespace: maintainerd
+rules:
+  - apiGroups: ["maintainer-d.cncf.io"]
+    resources:
+      - companies
+      - companies/status
+      - maintainers
+      - maintainers/status
+      - projects
+      - projects/status
+      - projectmemberships
+      - projectmemberships/status
+      - staffmembers
+      - staffmembers/status
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: maintainer-sync
+  namespace: maintainerd
+subjects:
+  - kind: ServiceAccount
+    name: maintainer-sync
+    namespace: maintainerd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: maintainer-sync-writer

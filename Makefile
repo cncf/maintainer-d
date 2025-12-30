@@ -1,8 +1,14 @@
 TOPDIR=$(PWD)
 GH_ORG_LC=robertkielty
 REGISTRY ?= ghcr.io
-IMAGE ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd:latest
-SYNC_IMAGE ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd-sync:latest
+GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr '/_' '--')
+BUILD_DATE ?= $(shell date -u '+%a-%b-%d-%Y' | tr '[:lower:]' '[:upper:]')
+TAG ?= $(BRANCH)-$(GIT_SHA)-$(BUILD_DATE)
+IMAGE ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd:$(TAG)
+IMAGE_LATEST ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd:latest
+SYNC_IMAGE ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd-sync:$(TAG)
+SYNC_IMAGE_LATEST ?= $(REGISTRY)/$(GH_ORG_LC)/maintainerd-sync:latest
 WHOAMI=$(shell whoami)
 
 # Helpful context string for logs
@@ -35,18 +41,18 @@ GHCR_TOKEN ?= $(GITHUB_GHCR_TOKEN)
 
 
 # ---- Image ----
-.PHONY: image-build
-image-build:
+.PHONY: mntrd-image-build
+mntrd-image-build:
 	@echo "Building container image: $(IMAGE)"
-	@docker buildx build -t $(IMAGE) -f Dockerfile .
+	@docker buildx build -t $(IMAGE) -f Dockerfile --target maintainerd .
 
 .PHONY: sync-image-build
 sync-image-build:
 	@echo "Building sync image: $(SYNC_IMAGE)"
-	@docker buildx build -t $(SYNC_IMAGE) -f deploy/sync/Dockerfile .
+	@docker buildx build -t $(SYNC_IMAGE) -f Dockerfile --target sync .
 
-.PHONY: image-push
-image-push: image-build
+.PHONY: mntrd-image-push
+mntrd-image-push: mntrd-image-build
 	@echo "Ensuring docker is logged in to $(REGISTRY) (uses GHCR_TOKEN if set)"
 	@if [ -n "$(GHCR_TOKEN)" ]; then \
 		echo "Logging into $(REGISTRY) as $(GHCR_USER) using token from GHCR_TOKEN"; \
@@ -56,9 +62,12 @@ image-push: image-build
 	fi
 	@echo "Pushing image: $(IMAGE)"
 	@docker push $(IMAGE)
+	@echo "Tagging and pushing latest: $(IMAGE_LATEST)"
+	@docker tag $(IMAGE) $(IMAGE_LATEST)
+	@docker push $(IMAGE_LATEST)
 
-.PHONY: image-deploy
-image-deploy: image-push
+.PHONY: mntrd-image-deploy
+mntrd-image-deploy: mntrd-image-push
 	@echo "Image pushed. Attempting rollout on context $(CTX_STR)."
 	@CTX_FLAG="$(if $(KUBECONTEXT),--context $(KUBECONTEXT))" ; \
 	if kubectl $$CTX_FLAG config current-context >/dev/null 2>&1; then \
@@ -83,6 +92,9 @@ sync-image-push: sync-image-build
 	fi
 	@echo "Pushing image: $(SYNC_IMAGE)"
 	@docker push $(SYNC_IMAGE)
+	@echo "Tagging and pushing latest: $(SYNC_IMAGE_LATEST)"
+	@docker tag $(SYNC_IMAGE) $(SYNC_IMAGE_LATEST)
+	@docker push $(SYNC_IMAGE_LATEST)
 
 .PHONY: sync-image-deploy
 sync-image-deploy: sync-image-push
@@ -93,7 +105,7 @@ sync-image-deploy: sync-image-push
 	fi ; \
 	if ! kubectl -n $(NAMESPACE) $$CTX_FLAG get cronjob/maintainer-sync >/dev/null 2>&1; then \
 		echo "CronJob/maintainer-sync not found in namespace $(NAMESPACE)."; \
-		echo "Hint: apply deploy/manifests/sync.yaml or run 'make sync-apply' (or 'make manifests-apply')."; \
+		echo "Hint: apply deploy/manifests/cronjob.yaml + deploy/manifests/sync-rbac.yaml or run 'make sync-apply' (or 'make manifests-apply')."; \
 		exit 1; \
 	fi ; \
 	kubectl -n $(NAMESPACE) $$CTX_FLAG set image cronjob/maintainer-sync '*=$(SYNC_IMAGE)'; \
@@ -103,14 +115,50 @@ sync-image-deploy: sync-image-push
 .PHONY: sync-apply
 sync-apply:
 	@echo "Applying sync resources in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
-	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f deploy/manifests/sync.yaml
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f deploy/manifests/cronjob.yaml -f deploy/manifests/sync-rbac.yaml
 
-.PHONY: image
-image: image-build
+.PHONY: sync-run
+sync-run:
+	@bash -c 'set -euo pipefail; \
+	job="maintainer-sync-manual-$$(date +%s)"; \
+	echo "Creating sync job $$job in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"; \
+	kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) create job --from=cronjob/maintainer-sync $$job; \
+	'
+
+.PHONY: migrate-schema
+migrate-schema:
+	@echo "Running schema migration job in namespace $(NAMESPACE) [ctx=$(CTX_STR)]"
+	@kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f deploy/manifests/maintainerd-migrate-schema-job.yaml
+
+.PHONY: migrate-schema-safe
+migrate-schema-safe:
+	@bash -c 'set -euo pipefail; \
+	echo "Scaling Deployment/maintainerd to 0 for schema migration [ctx=$(CTX_STR)]"; \
+	kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) scale deploy/maintainerd --replicas=0; \
+	echo "Resolving PVC attachment node for maintainerd-db [ctx=$(CTX_STR)]"; \
+	pv="$$(kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) get pvc maintainerd-db -o jsonpath="{.spec.volumeName}")"; \
+	node="$$(kubectl get volumeattachment -o jsonpath="{range .items[?(@.spec.source.persistentVolumeName==\"$${pv}\")]}{.spec.nodeName}{end}")"; \
+	kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) delete job maintainerd-migrate --ignore-not-found; \
+	if [ -n "$${node}" ]; then \
+		echo "Running schema migration job pinned to node $${node} [ctx=$(CTX_STR)]"; \
+		kubectl create -f deploy/manifests/maintainerd-migrate-schema-job.yaml --dry-run=client -o json | \
+		kubectl patch --local -f - -p "{\"spec\":{\"template\":{\"spec\":{\"nodeName\":\"$${node}\"}}}}" -o json | \
+		kubectl apply -f -; \
+	else \
+		echo "No attachment node found; running migration job without pinning [ctx=$(CTX_STR)]"; \
+		kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) apply -f deploy/manifests/maintainerd-migrate-schema-job.yaml; \
+	fi; \
+	kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) wait --for=condition=complete job/maintainerd-migrate --timeout=300s; \
+	echo "Scaling Deployment/maintainerd back to 1 [ctx=$(CTX_STR)]"; \
+	kubectl -n $(NAMESPACE) $(if $(KUBECONTEXT),--context $(KUBECONTEXT)) scale deploy/maintainerd --replicas=1; \
+	'
+
+.PHONY: mntrd-image
+mntrd-image: mntrd-image-build
 	@true
 
-.PHONY: image-run
-image-run: image
+.PHONY: mntrd-image-run
+mntrd-image-run: mntrd-image
 	@docker run -ti --rm $(IMAGE)
 
 # ---- Config ----
@@ -146,15 +194,20 @@ help:
 	@echo "make lint            -> run linters (requires golangci-lint)"
 	@echo ""
 	@echo "== Deployment =="
+	@echo "Image tags: <branch>-<shortsha>-<DAY-MON-DD-YYYY> (UTC), plus latest"
 	@echo "make secrets         -> build $(ENVOUT) from $(ENVSRC) and apply both Secrets"
 	@echo "make env             -> build $(ENVOUT) from $(ENVSRC)"
 	@echo "make apply-env       -> create/update $(ENV_SECRET_NAME) from $(ENVOUT)"
 	@echo "make apply-creds     -> create/update $(CREDS_SECRET_NAME) from $(CREDS_FILE)"
 	@echo "make clean-env       -> remove $(ENVOUT)"
 	@echo "make print           -> show which keys would be loaded (without values)"
-	@echo "make image-build     -> build container image $(IMAGE) locally"
-	@echo "make image-push      -> build and push $(IMAGE) (uses GHCR_TOKEN/GITHUB_GHCR_TOKEN + GHCR_USER/DOCKER_REGISTRY_USERNAME for ghcr login)"
-	@echo "make image-deploy    -> build, push, and restart Deployment in $(NAMESPACE)"
+	@echo "make mntrd-image-build  -> build maintainerd image $(IMAGE) locally"
+	@echo "make mntrd-image-push   -> build and push $(IMAGE) (uses GHCR_TOKEN/GITHUB_GHCR_TOKEN + GHCR_USER/DOCKER_REGISTRY_USERNAME for ghcr login)"
+	@echo "make mntrd-image-deploy -> build, push, and restart Deployment in $(NAMESPACE)"
+	@echo "make sync-apply      -> apply CronJob + RBAC for the sync job"
+	@echo "make sync-run        -> trigger a manual sync job and tail logs"
+	@echo "make migrate-schema  -> run one-off schema migration job"
+	@echo "make migrate-schema-safe -> scale down, run migration pinned to attached node, scale back up"
 	@echo "make ensure-ns       -> ensure namespace $(NAMESPACE) exists"
 	@echo "make apply-ghcr-secret -> create/update docker-registry Secret 'ghcr-secret'"
 	@echo "make manifests-apply -> kubectl apply -f deploy/manifests (prod-only)"

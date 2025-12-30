@@ -34,4 +34,19 @@ This document gives agents instructions and tips for working in this repository.
 - Keep changes minimal and focused. Match existing Go style and module layout.
 - Avoid unrelated refactors in the same change. Update docs/Makefile if deployment surface changes.
 - Use the "The Friends method" of writing commit messages to describe patches where each commit message is notionally pre-fixed with the sentence, "This is the change that " and then the commit message continues this sentence, for example, (this is the change that) "adds the repo being monitored to log output at loglevel INFO"
+
+## CRD Workflow (Generated)
+- CRDs and deepcopy files are generated; do not hand-edit `config/crd/bases/*.yaml`, `config/kcp/*.yaml`, or `apis/maintainers/v1alpha1/zz_generated.deepcopy.go`.
+- When changing existing CRDs: update Go types and kubebuilder markers in `apis/maintainers/v1alpha1/types.go`, then regenerate.
+- When adding new CRDs: add the new type + kubebuilder markers in `apis/maintainers/v1alpha1/types.go`, include it in `addKnownTypes`, then regenerate.
+- Regeneration command: `make kcp-generate` (requires `controller-gen` and `apigen`; run `make kcp-install` if needed).
+- CRDs are generated from `apis/maintainers/v1alpha1/types.go`, not from `model/main.go`. DB model changes do not automatically reflect in CRDs; update API types explicitly when you want schema changes exposed.
+
+## Model → CRD Exposure Checklist
+- Decide whether the DB change should be exposed via CRD or remain internal.
+- If exposed, update `apis/maintainers/v1alpha1/types.go` (fields + kubebuilder markers). Add to `addKnownTypes` for new resources.
+- Update the sync/mapping layer to populate the new fields (e.g., `cmd/sync/main.go` or store accessors).
+- Regenerate artifacts: `make kcp-generate`.
+- Review generated diffs under `config/crd/bases/` and `config/kcp/`.
+- Run CI (at least `make ci-local` or lint + tests).
 f

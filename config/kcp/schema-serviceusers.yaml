@@ -2,7 +2,7 @@ apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
   creationTimestamp: null
-  name: v251121-47720f8.serviceusers.maintainer-d.cncf.io
+  name: v251229-074b474.serviceusers.maintainer-d.cncf.io
 spec:
   group: maintainer-d.cncf.io
   names:

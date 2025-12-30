@@ -21,4 +21,5 @@ type Store interface {
 	GetMaintainerMapByGitHubAccount() (map[string]model.Maintainer, error)
 	CreateServiceTeamForUser(interface{ any }) (*model.ServiceTeam, error)
 	ListCompanies() ([]model.Company, error)
+	ListStaffMembers() ([]model.StaffMember, error)
 }

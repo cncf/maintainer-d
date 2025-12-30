@@ -1,0 +1,95 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.3
+  name: staffmembers.maintainer-d.cncf.io
+spec:
+  group: maintainer-d.cncf.io
+  names:
+    categories:
+    - maintainerd
+    kind: StaffMember
+    listKind: StaffMemberList
+    plural: staffmembers
+    shortNames:
+    - staff
+    singular: staffmember
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: StaffMember represents a foundation staff member.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: StaffMemberSpec captures desired staff member attributes.
+            properties:
+              displayName:
+                type: string
+              externalIDs:
+                additionalProperties:
+                  type: string
+                type: object
+              foundationRef:
+                description: |-
+                  ResourceReference expresses a loose reference to another resource. The UID is optional
+                  but helps controllers confirm identity when present.
+                properties:
+                  name:
+                    description: Name is the resource name within its workspace.
+                    type: string
+                  uid:
+                    description: UID is set by controllers that want to pin to a specific
+                      resource instance.
+                    type: string
+                  workspace:
+                    description: Workspace optionally identifies the kcp workspace
+                      that owns the target resource.
+                    type: string
+                required:
+                - name
+                type: object
+              gitHubAccount:
+                type: string
+              gitHubEmail:
+                type: string
+              primaryEmail:
+                type: string
+              registeredAt:
+                format: date-time
+                type: string
+            required:
+            - displayName
+            type: object
+          status:
+            description: StaffMemberStatus surfaces derived information gathered by
+              controllers.
+            properties:
+              lastSynced:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

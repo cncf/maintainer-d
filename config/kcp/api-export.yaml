@@ -7,52 +7,57 @@ spec:
   resources:
   - group: maintainer-d.cncf.io
     name: collaborators
-    schema: v251121-47720f8.collaborators.maintainer-d.cncf.io
+    schema: v251229-074b474.collaborators.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: companies
-    schema: v251121-47720f8.companies.maintainer-d.cncf.io
+    schema: v251229-074b474.companies.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: maintainers
-    schema: v251121-47720f8.maintainers.maintainer-d.cncf.io
+    schema: v251229-074b474.maintainers.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: onboardingtasks
-    schema: v251121-47720f8.onboardingtasks.maintainer-d.cncf.io
+    schema: v251229-074b474.onboardingtasks.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: projectmemberships
-    schema: v251121-47720f8.projectmemberships.maintainer-d.cncf.io
+    schema: v251229-074b474.projectmemberships.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: projects
-    schema: v251121-47720f8.projects.maintainer-d.cncf.io
+    schema: v251229-074b474.projects.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: services
-    schema: v251121-47720f8.services.maintainer-d.cncf.io
+    schema: v251229-074b474.services.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: serviceteams
-    schema: v251121-47720f8.serviceteams.maintainer-d.cncf.io
+    schema: v251229-074b474.serviceteams.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: serviceusers
-    schema: v251121-47720f8.serviceusers.maintainer-d.cncf.io
+    schema: v251229-074b474.serviceusers.maintainer-d.cncf.io
     storage:
       crd: {}
   - group: maintainer-d.cncf.io
     name: serviceuserteams
-    schema: v251121-47720f8.serviceuserteams.maintainer-d.cncf.io
+    schema: v251229-074b474.serviceuserteams.maintainer-d.cncf.io
+    storage:
+      crd: {}
+  - group: maintainer-d.cncf.io
+    name: staffmembers
+    schema: v251229-074b474.staffmembers.maintainer-d.cncf.io
     storage:
       crd: {}
 status: {}

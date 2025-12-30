@@ -190,3 +190,25 @@ func (s *SQLStore) ListCompanies() ([]model.Company, error) {
 	}
 	return companies, nil
 }
+
+// ListStaffMembers returns all staff members in the database, including their foundations.
+func (s *SQLStore) ListStaffMembers() ([]model.StaffMember, error) {
+	var staffMembers []model.StaffMember
+	if err := s.db.Preload("Foundation").Find(&staffMembers).Error; err != nil {
+		return nil, err
+	}
+	return staffMembers, nil
+}
+
+// IsStaffGitHubAccount returns true if the GitHub account belongs to a staff member.
+func (s *SQLStore) IsStaffGitHubAccount(githubAccount string) (bool, error) {
+	if githubAccount == "" {
+		return false, nil
+	}
+	var count int64
+	err := s.db.
+		Model(&model.StaffMember{}).
+		Where("LOWER(git_hub_account) = ?", strings.ToLower(githubAccount)).
+		Count(&count).Error
+	return count > 0, err
+}

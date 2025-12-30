@@ -2,23 +2,23 @@ apiVersion: apis.kcp.io/v1alpha1
 kind: APIResourceSchema
 metadata:
   creationTimestamp: null
-  name: v251229-074b474.maintainers.maintainer-d.cncf.io
+  name: v251229-074b474.staffmembers.maintainer-d.cncf.io
 spec:
   group: maintainer-d.cncf.io
   names:
     categories:
     - maintainerd
-    kind: Maintainer
-    listKind: MaintainerList
-    plural: maintainers
+    kind: StaffMember
+    listKind: StaffMemberList
+    plural: staffmembers
     shortNames:
-    - maint
-    singular: maintainer
+    - staff
+    singular: staffmember
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
-      description: Maintainer represents an individual with project responsibilities.
+      description: StaffMember represents a foundation staff member.
       properties:
         apiVersion:
           description: |-
@@ -38,9 +38,15 @@ spec:
         metadata:
           type: object
         spec:
-          description: MaintainerSpec captures desired maintainer attributes.
+          description: StaffMemberSpec captures desired staff member attributes.
           properties:
-            companyRef:
+            displayName:
+              type: string
+            externalIDs:
+              additionalProperties:
+                type: string
+              type: object
+            foundationRef:
               description: |-
                 ResourceReference expresses a loose reference to another resource. The UID is optional
                 but helps controllers confirm identity when present.
@@ -59,12 +65,6 @@ spec:
               required:
               - name
               type: object
-            displayName:
-              type: string
-            externalIDs:
-              additionalProperties:
-                type: string
-              type: object
             gitHubAccount:
               type: string
             gitHubEmail:
@@ -74,49 +74,16 @@ spec:
             registeredAt:
               format: date-time
               type: string
-            status:
-              description: MaintainerLifecycle enumerates lifecycle states for a maintainer.
-              type: string
           required:
           - displayName
-          - status
           type: object
         status:
-          description: MaintainerStatus surfaces derived information gathered by controllers.
+          description: StaffMemberStatus surfaces derived information gathered by
+            controllers.
           properties:
-            importWarnings:
-              items:
-                type: string
-              type: array
             lastSynced:
               format: date-time
               type: string
-            projectMemberships:
-              items:
-                description: ProjectReference embeds additional project specific metadata
-                  for status views.
-                properties:
-                  name:
-                    description: Name is the resource name within its workspace.
-                    type: string
-                  roles:
-                    description: Roles reflects the project roles this subject currently
-                      holds.
-                    items:
-                      type: string
-                    type: array
-                  uid:
-                    description: UID is set by controllers that want to pin to a specific
-                      resource instance.
-                    type: string
-                  workspace:
-                    description: Workspace optionally identifies the kcp workspace
-                      that owns the target resource.
-                    type: string
-                required:
-                - name
-                type: object
-              type: array
           type: object
       type: object
     served: true

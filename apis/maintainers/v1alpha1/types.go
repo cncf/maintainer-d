@@ -87,6 +87,44 @@ type MaintainerList struct {
 	Items           []Maintainer `json:"items"`
 }
 
+// StaffMemberSpec captures desired staff member attributes.
+type StaffMemberSpec struct {
+	DisplayName   string             `json:"displayName"`
+	PrimaryEmail  string             `json:"primaryEmail,omitempty"`
+	GitHubAccount string             `json:"gitHubAccount,omitempty"`
+	GitHubEmail   string             `json:"gitHubEmail,omitempty"`
+	FoundationRef *ResourceReference `json:"foundationRef,omitempty"`
+	RegisteredAt  *metav1.Time       `json:"registeredAt,omitempty"`
+	ExternalIDs   map[string]string  `json:"externalIDs,omitempty"`
+}
+
+// StaffMemberStatus surfaces derived information gathered by controllers.
+type StaffMemberStatus struct {
+	LastSynced *metav1.Time `json:"lastSynced,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:path=staffmembers,scope=Namespaced,shortName=staff,categories=maintainerd
+// +kubebuilder:subresource:status
+
+// StaffMember represents a foundation staff member.
+type StaffMember struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   StaffMemberSpec   `json:"spec,omitempty"`
+	Status StaffMemberStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// StaffMemberList is a list of StaffMember resources.
+type StaffMemberList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []StaffMember `json:"items"`
+}
+
 // CollaboratorSpec captures collaborator specific attributes.
 type CollaboratorSpec struct {
 	DisplayName   string              `json:"displayName"`
@@ -437,6 +475,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&Maintainer{}, &MaintainerList{},
+		&StaffMember{}, &StaffMemberList{},
 		&Collaborator{}, &CollaboratorList{},
 		&Project{}, &ProjectList{},
 		&Company{}, &CompanyList{},
