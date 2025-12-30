@@ -13,9 +13,14 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -o /bootstrap ./cmd/bootstrap && \
-    go build -o /maintainerd ./main.go
+    go build -o /maintainerd ./main.go && \
+    go build -o /sync ./cmd/sync
 
-FROM gcr.io/distroless/base-debian12
+FROM gcr.io/distroless/base-debian12 AS maintainerd
 COPY --from=build /bootstrap /usr/local/bin/bootstrap
 COPY --from=build /maintainerd /usr/local/bin/maintainerd
 ENTRYPOINT ["/usr/local/bin/maintainerd"]
+
+FROM gcr.io/distroless/base-debian12 AS sync
+COPY --from=build /sync /usr/local/bin/sync
+ENTRYPOINT ["/usr/local/bin/sync"]
