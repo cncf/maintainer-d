@@ -126,7 +126,7 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 		summary.SkippedInvalidMaintainers++
 		if a.Logger != nil {
 			a.Logger.Infow(
-				"skipping auto-add for invalid project-maintainers file",
+				"skipping auto-add for invalid maintainers.yaml file",
 				"project_id", project.ID,
 				"project_name", project.Name,
 				"maintainers_url", fileDiscoveryURL(result.MaintainersFile),
@@ -137,9 +137,11 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 		return summary, nil
 	}
 	lineByHandle := make(map[string]int, len(entries))
+	teamByHandle := make(map[string]string, len(entries))
 	handles := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		lineByHandle[entry.Handle] = entry.Line
+		teamByHandle[entry.Handle] = entry.TeamName
 		handles = append(handles, entry.Handle)
 	}
 
@@ -178,7 +180,7 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 			maintainerID = &id
 		}
 
-		if err := a.writeDotProjectObservation(ctx, project, maintainerID, normalized, result.MaintainersFile, result.DefaultBranch, lineByHandle[normalized], now); err != nil {
+		if err := a.writeDotProjectObservation(ctx, project, maintainerID, normalized, result.MaintainersFile, result.DefaultBranch, lineByHandle[normalized], teamByHandle[normalized], now); err != nil {
 			// An expired run context is the run's failure, not this row's:
 			// counting it as an audit failure and continuing would let a
 			// timed-out run finish as a non-partial success. Ordinary
@@ -441,11 +443,20 @@ func (a *AutoMaintainerAdder) resolveFoundationProvenance(ctx context.Context, r
 	return prov, reviewState, nil
 }
 
-// writeDotProjectObservation records that github was found in the
-// project-maintainers team of the dot-project maintainers.yaml file -
-// membership there is the current gatekeeping mechanism for official CNCF
-// project maintainer status.
-func (a *AutoMaintainerAdder) writeDotProjectObservation(ctx context.Context, project model.Project, maintainerID *uint, github string, file FileDiscovery, branch string, line int, now time.Time) error {
+// dotProjectMatchReason reports why github was matched, naming the team it
+// was found in when the parsed entry carries a team name.
+func dotProjectMatchReason(teamName string) string {
+	teamName = strings.TrimSpace(teamName)
+	if teamName == "" {
+		return "member of a maintainer team in .project/maintainers.yaml"
+	}
+	return fmt.Sprintf("member of the %q team in .project/maintainers.yaml", teamName)
+}
+
+// writeDotProjectObservation records that github was found in a maintainer
+// team of the dot-project maintainers.yaml file - membership there is the
+// current gatekeeping mechanism for official CNCF project maintainer status.
+func (a *AutoMaintainerAdder) writeDotProjectObservation(ctx context.Context, project model.Project, maintainerID *uint, github string, file FileDiscovery, branch string, line int, teamName string, now time.Time) error {
 	prov, reviewState, resolveErr := a.resolveDotProjectProvenance(ctx, project, file, branch, line)
 	if resolveErr != nil {
 		// The upsert overwrites every provenance column, so writing the empty
@@ -469,7 +480,7 @@ func (a *AutoMaintainerAdder) writeDotProjectObservation(ctx context.Context, pr
 		SourceRef:         "github:" + NormalizeGitHubHandle(github),
 		GitHubUser:        github,
 		MatchStatus:       "matched",
-		MatchReason:       "member of project-maintainers team in .project/maintainers.yaml",
+		MatchReason:       dotProjectMatchReason(teamName),
 		Confidence:        confidence,
 		ObservedAt:        now,
 		SourceFilePath:    strings.TrimSpace(file.Path),

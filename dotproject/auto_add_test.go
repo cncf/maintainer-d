@@ -323,6 +323,16 @@ Graduated,Kubernetes,Alice Example,Acme,AliceExample
 	require.Len(t, store.audits, 1)
 	assert.Equal(t, "ADD_DOT_PROJECT_MAINTAINER", store.audits[0].Action)
 	assert.Contains(t, store.audits[0].Message, "aliceexample was added")
+
+	require.Len(t, store.observed, 2) // foundation-csv + dot-project
+	var dotProjectObservation *model.MaintainerIdentityObservation
+	for i := range store.observed {
+		if store.observed[i].Source == provenance.SourceDotProject {
+			dotProjectObservation = &store.observed[i]
+		}
+	}
+	require.NotNil(t, dotProjectObservation)
+	assert.Equal(t, `member of the "project-maintainers" team in .project/maintainers.yaml`, dotProjectObservation.MatchReason)
 }
 
 // A maintainer created by auto-add is created *after* its dot-project and
