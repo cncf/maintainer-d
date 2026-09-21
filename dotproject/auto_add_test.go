@@ -2,6 +2,7 @@ package dotproject
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,6 +134,20 @@ type fakeLFXResolver struct {
 func (f *fakeLFXResolver) ResolveMaintainerIdentity(_ context.Context, _, _ string) (LFXIdentityResult, error) {
 	f.calls++
 	return f.result, f.err
+}
+
+type fakeGitHubProfileResolver struct {
+	names map[string]string
+	err   error
+	calls []string
+}
+
+func (f *fakeGitHubProfileResolver) GetMaintainerName(_ context.Context, githubHandle string) (string, error) {
+	f.calls = append(f.calls, githubHandle)
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.names[NormalizeGitHubHandle(githubHandle)], nil
 }
 
 func TestAutoMaintainerAdderDryRunWritesObservationsButNoMaintainers(t *testing.T) {
@@ -373,6 +388,70 @@ Graduated,Kubernetes,Alice Example,Acme,AliceExample
 		require.NotNil(t, observation.MaintainerID, "observation from source %q must be attached to the created maintainer", observation.Source)
 		assert.Equal(t, created.ID, *observation.MaintainerID, "observation from source %q", observation.Source)
 	}
+}
+
+// A maintainer only present in .project/maintainers.yaml (not the legacy
+// foundation CSV) has no name from FoundationMaintainerRecord - that record
+// is synthesized with just Project/GitHub set. The GitHub profile name must
+// be used instead of leaving the maintainer named "" ("Unknown maintainer"
+// in the UI).
+func TestAutoMaintainerAdderWriteModeUsesGitHubProfileNameWhenFoundationHasNone(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeAutoAddStore()
+	profiles := &fakeGitHubProfileResolver{names: map[string]string{"severindellsperger": "Severin Dellsperger"}}
+	adder := &AutoMaintainerAdder{
+		Store:              store,
+		CheckFoundationCSV: false,
+		AutoAddMaintainers: true,
+		GitHubProfiles:     profiles,
+	}
+
+	summary, err := adder.ProcessProject(context.Background(), model.Project{Model: gorm.Model{ID: 1}, Name: "sdc"}, &DiscoveryResult{
+		MaintainersFile: FileDiscovery{Exists: true, Body: `maintainers:
+  - teams:
+      - name: "maintainers"
+        members: [severindellsperger]
+`},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.CreatedMaintainers)
+
+	created, ok := store.maintainers["severindellsperger"]
+	require.True(t, ok)
+	assert.Equal(t, "Severin Dellsperger", created.Name)
+	assert.Equal(t, []string{"severindellsperger"}, profiles.calls)
+}
+
+// A GitHub profile lookup failure must not block maintainer creation - the
+// maintainer is still created, just without a name, falling back to
+// whatever the foundation CSV (if any) provided.
+func TestAutoMaintainerAdderWriteModeToleratesGitHubProfileLookupFailure(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeAutoAddStore()
+	profiles := &fakeGitHubProfileResolver{err: errors.New("github: rate limited")}
+	adder := &AutoMaintainerAdder{
+		Store:              store,
+		CheckFoundationCSV: false,
+		AutoAddMaintainers: true,
+		GitHubProfiles:     profiles,
+		Logger:             zap.NewNop().Sugar(),
+	}
+
+	summary, err := adder.ProcessProject(context.Background(), model.Project{Model: gorm.Model{ID: 1}, Name: "sdc"}, &DiscoveryResult{
+		MaintainersFile: FileDiscovery{Exists: true, Body: `maintainers:
+  - teams:
+      - name: "maintainers"
+        members: [severindellsperger]
+`},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.CreatedMaintainers)
+
+	created, ok := store.maintainers["severindellsperger"]
+	require.True(t, ok)
+	assert.Equal(t, "", created.Name)
 }
 
 // With the Foundation CSV gate off no lookup ever happens, so writing a

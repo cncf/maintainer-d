@@ -550,6 +550,32 @@ func (c *GitHubRepositoryClient) ListFiles(ctx context.Context, owner, repo, ref
 	return files, nil
 }
 
+// GitHubUserProfileClient implements GitHubProfileResolver against the real
+// GitHub API.
+type GitHubUserProfileClient struct {
+	Client *github.Client
+}
+
+// GetMaintainerName returns the profile's "Name" field, or "" when the
+// profile has none set or the account is gone (404) - either way there is no
+// name to give, not an error worth failing a sync run over.
+func (c *GitHubUserProfileClient) GetMaintainerName(ctx context.Context, githubHandle string) (string, error) {
+	if c == nil || c.Client == nil {
+		return "", errors.New("github client is required")
+	}
+	user, resp, err := c.Client.Users.Get(ctx, githubHandle)
+	if err != nil {
+		if isGitHubNotFound(resp, err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if user == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(user.GetName()), nil
+}
+
 func isGitHubNotFound(resp *github.Response, err error) bool {
 	if resp != nil && resp.StatusCode == 404 {
 		return true

@@ -28,6 +28,15 @@ type LFXIdentityResolver interface {
 	ResolveMaintainerIdentity(ctx context.Context, githubHandle, email string) (LFXIdentityResult, error)
 }
 
+// GitHubProfileResolver looks up the display name on a GitHub user's profile.
+// A handle found in .project/maintainers.yaml has already been through PR
+// review, so it is trusted as the maintainer's identity; the profile name is
+// used to give that maintainer a real name instead of "Unknown maintainer"
+// when no other source (foundation CSV, LFX) has one.
+type GitHubProfileResolver interface {
+	GetMaintainerName(ctx context.Context, githubHandle string) (string, error)
+}
+
 type LFXIdentityResult struct {
 	UserID     string
 	LFID       string
@@ -44,6 +53,9 @@ type AutoMaintainerAdder struct {
 	Store      AutoAddStore
 	Foundation *FoundationMaintainerIndex
 	LFX        LFXIdentityResolver
+	// GitHubProfiles is optional; when nil, a newly created maintainer's name
+	// falls back to whatever the foundation CSV provided (often empty).
+	GitHubProfiles GitHubProfileResolver
 	// Provenance resolves a source line to the commit/PR/review that
 	// introduced it. Optional: when nil, observations still write with
 	// their location fields but no PR/review evidence, and confidence
@@ -287,7 +299,8 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 			}
 			lfxUserID = strings.TrimSpace(identity.UserID)
 		}
-		maintainer, created, didLink, err := a.Store.UpsertMaintainerWithIdentity(project.ID, record.Name, email, displayGitHub(record, normalized), record.Company, lfxUserID)
+		name := a.resolveMaintainerName(ctx, normalized, record.Name)
+		maintainer, created, didLink, err := a.Store.UpsertMaintainerWithIdentity(project.ID, name, email, displayGitHub(record, normalized), record.Company, lfxUserID)
 		if err != nil {
 			return summary, err
 		}
@@ -828,6 +841,26 @@ func isPlaceholderGitHubHandle(handle string) bool {
 
 func isUsableLFXConfidence(confidence string) bool {
 	return confidence == "exact" || confidence == "strong"
+}
+
+// resolveMaintainerName names a newly discovered maintainer. The GitHub
+// profile is tried first: the handle came from a PR-reviewed
+// .project/maintainers.yaml entry, so it is trusted, and most maintainers
+// have a real name set on GitHub even when the foundation CSV has never
+// heard of them. foundationName is used when the profile has no name set,
+// or when the lookup itself is unavailable or fails.
+func (a *AutoMaintainerAdder) resolveMaintainerName(ctx context.Context, githubHandle, foundationName string) string {
+	if a.GitHubProfiles != nil {
+		name, err := a.GitHubProfiles.GetMaintainerName(ctx, githubHandle)
+		if err != nil {
+			if a.Logger != nil {
+				a.Logger.Warnw("failed to fetch github profile name", "error", err, "github", githubHandle)
+			}
+		} else if trimmed := strings.TrimSpace(name); trimmed != "" {
+			return trimmed
+		}
+	}
+	return strings.TrimSpace(foundationName)
 }
 
 func displayGitHub(record FoundationMaintainerRecord, fallback string) string {
