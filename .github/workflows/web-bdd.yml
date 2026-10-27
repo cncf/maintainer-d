@@ -50,6 +50,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
+      # clo-ui is a git dependency whose prepare script runs `yarn build`.
+      # GitHub's runner images stopped shipping yarn (ubuntu-24.04 had
+      # 1.22.22 as of 2026-09), so install the same version explicitly.
+      - name: Install yarn for git dependency builds
+        run: npm install -g yarn@1.22.22
+
       - name: Install web deps
         run: |
           cd web
