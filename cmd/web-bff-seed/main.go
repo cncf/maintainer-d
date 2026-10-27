@@ -242,7 +242,7 @@ func main() {
 		GovernanceFileETag:      "seed-governance",
 		ProjectFileBodyHash:     "seed-project-hash",
 		MaintainersFileBodyHash: "seed-maintainers-hash",
-		// Projects now organise maintainers.yaml teams however they see fit
+		// Projects now organize maintainers.yaml teams however they see fit
 		// (cncf/automation#602), so the fixture mixes the legacy
 		// "project-maintainers" name with upstream's "maintainers" scaffold
 		// name and other team names, including emeritus/community teams. Until
