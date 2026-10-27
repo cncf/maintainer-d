@@ -2,6 +2,7 @@ package dotproject
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -327,7 +328,7 @@ Graduated,Kubernetes,Alice Example,Acme,AliceExample
 	summary, err := adder.ProcessProject(context.Background(), model.Project{Model: gorm.Model{ID: 1}, Name: "Kubernetes"}, &DiscoveryResult{
 		MaintainersFile: FileDiscovery{Exists: true, Body: `maintainers:
   - teams:
-      - name: project-maintainers
+      - name: maintainers
         members: [AliceExample]
 `},
 	})
@@ -338,6 +339,10 @@ Graduated,Kubernetes,Alice Example,Acme,AliceExample
 	require.Len(t, store.audits, 1)
 	assert.Equal(t, "ADD_DOT_PROJECT_MAINTAINER", store.audits[0].Action)
 	assert.Contains(t, store.audits[0].Message, "aliceexample was added")
+	var auditMetadata map[string]any
+	require.NoError(t, json.Unmarshal([]byte(store.audits[0].Metadata), &auditMetadata))
+	assert.Equal(t, ".project/maintainers.yaml maintainers", auditMetadata["source"])
+	assert.Equal(t, "maintainers", auditMetadata["team"])
 
 	require.Len(t, store.observed, 2) // foundation-csv + dot-project
 	var dotProjectObservation *model.MaintainerIdentityObservation
@@ -347,7 +352,7 @@ Graduated,Kubernetes,Alice Example,Acme,AliceExample
 		}
 	}
 	require.NotNil(t, dotProjectObservation)
-	assert.Equal(t, `member of the "project-maintainers" team in .project/maintainers.yaml`, dotProjectObservation.MatchReason)
+	assert.Equal(t, `member of the "maintainers" team in .project/maintainers.yaml`, dotProjectObservation.MatchReason)
 }
 
 // A maintainer created by auto-add is created *after* its dot-project and

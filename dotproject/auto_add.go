@@ -260,7 +260,7 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 			}
 			if didLink {
 				summary.LinkedMaintainers++
-				if err := a.logAutoAdd(project, maintainer, record, result, nil, now, "linked"); err != nil {
+				if err := a.logAutoAdd(project, maintainer, record, result, nil, now, "linked", teamByHandle[normalized]); err != nil {
 					summary.AuditFailures++
 				}
 			}
@@ -318,7 +318,7 @@ func (a *AutoMaintainerAdder) ProcessProject(ctx context.Context, project model.
 			}
 		}
 		if created || didLink {
-			if err := a.logAutoAdd(project, maintainer, record, result, &identity, now, actionFor(created)); err != nil {
+			if err := a.logAutoAdd(project, maintainer, record, result, &identity, now, actionFor(created), teamByHandle[normalized]); err != nil {
 				summary.AuditFailures++
 			}
 		}
@@ -466,6 +466,16 @@ func dotProjectMatchReason(teamName string) string {
 	return fmt.Sprintf("member of the %q team in .project/maintainers.yaml", teamName)
 }
 
+// dotProjectAuditSource names the maintainers.yaml team a handle was found
+// in, rather than assuming the retired "project-maintainers" team name.
+func dotProjectAuditSource(teamName string) string {
+	teamName = strings.TrimSpace(teamName)
+	if teamName == "" {
+		return ".project/maintainers.yaml"
+	}
+	return ".project/maintainers.yaml " + teamName
+}
+
 // writeDotProjectObservation records that github was found in a maintainer
 // team of the dot-project maintainers.yaml file - membership there is the
 // current gatekeeping mechanism for official CNCF project maintainer status.
@@ -569,7 +579,7 @@ func (a *AutoMaintainerAdder) resolveDotProjectProvenance(ctx context.Context, p
 	return prov, reviewState, nil
 }
 
-func (a *AutoMaintainerAdder) logAutoAdd(project model.Project, maintainer *model.Maintainer, record FoundationMaintainerRecord, result *DiscoveryResult, identity *LFXIdentityResult, now time.Time, mode string) error {
+func (a *AutoMaintainerAdder) logAutoAdd(project model.Project, maintainer *model.Maintainer, record FoundationMaintainerRecord, result *DiscoveryResult, identity *LFXIdentityResult, now time.Time, mode string, teamName string) error {
 	projectID := project.ID
 	var maintainerID *uint
 	var maintainerPath string
@@ -642,7 +652,8 @@ func (a *AutoMaintainerAdder) logAutoAdd(project model.Project, maintainer *mode
 		"name":                         maintainerName,
 		"email":                        maintainerEmail,
 		"lfx_id":                       lfxID,
-		"source":                       ".project/maintainers.yaml project-maintainers",
+		"source":                       dotProjectAuditSource(teamName),
+		"team":                         strings.TrimSpace(teamName),
 		"source_url":                   fileDiscoveryURL(resultMaintainersFile(result)),
 		"foundation_csv_gate_enabled":  a.CheckFoundationCSV,
 		"auto_add_maintainers_enabled": a.AutoAddMaintainers,
