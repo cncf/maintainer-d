@@ -4,10 +4,18 @@ name: Images
 # :main-<sha7> and :latest. Deploying stays a deliberate step: pin the tag with
 # `make image-set TAG=main-<sha7>` and commit deploy/manifests/kustomization.yaml.
 
+# Docs-only and deploy-only merges (including tag bumps to
+# deploy/manifests/kustomization.yaml) don't build images.
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.MD"
+      - "deploy/**"
+      - "docs/**"
+      - "specifications/**"
   workflow_dispatch:
 
 permissions:
