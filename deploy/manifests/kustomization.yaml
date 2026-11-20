@@ -28,7 +28,7 @@ images:
   - name: ghcr.io/cncf/maintainerd
     newTag: main-94cc6c1
   - name: ghcr.io/cncf/maintainerd-dot-project-sync
-    newTag: main-94cc6c1
+    newTag: main-5da6570
   - name: ghcr.io/cncf/maintainerd-fossa-poller
     newTag: main-94cc6c1
   - name: ghcr.io/cncf/maintainerd-github-profile-sync
