@@ -1,0 +1,24 @@
+schema: 2
+written_by: dev
+description: 'CNCF-internal service that tracks maintainers for CNCF projects: Go webhook server for onboarding (FOSSA), Go web-bff REST API, Next.js web app, PostgreSQL via GORM, deployed with Kubernetes manifests'
+role: application
+tags:
+    - go
+    - nextjs
+    - postgres
+    - kubernetes
+    - cncf
+    - fossa
+    - github-webhooks
+source:
+    provider: file
+    config:
+        location: ..
+knowledge:
+    provider: file
+    config:
+        location: knowledge
+changelog:
+    provider: file
+    config:
+        directory: changelog

@@ -1,0 +1,16 @@
+*.tmp
+*.log
+
+# Backups an upgrade (`migrate`) keeps of the settings it rewrites.
+*.old
+.env
+
+# Materialized member-repo clones must never enter the project's history.
+repos/
+# Per-spec git worktrees made while implementing an epic, and the repo
+# overlay inside them, are never part of the project's history.
+worktrees/
+worktree-repos.json
+workflows/.commit.lock
+# Command logs (the `log` settings) are local to each machine.
+logs/

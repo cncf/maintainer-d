@@ -1,0 +1,43 @@
+schema: 5
+written_by: dev
+skills_version: dev
+name: maintainer-d
+command: spektacular
+agent: claude
+spec_trigger_threshold: moderate
+epic_split_threshold: moderate
+auto_commit: "off"
+log:
+    provider: file
+    level: standard
+    retention: 10
+    config:
+        directory: logs
+spec:
+    provider: file
+    id_method: timestamp
+    config:
+        directory: specs
+plan:
+    provider: file
+    strict_spec_changes: false
+    config:
+        directory: plans
+    task_id:
+        provider: uuid
+changelog:
+    provider: file
+    config:
+        directory: changelog
+epic:
+    provider: file
+    strict_dependencies: false
+    config:
+        directory: epics
+implement:
+    worktrees: true
+    goal_check:
+        enabled: true
+repos:
+    - name: maintainer-d
+      location: /home/rk/maintainer-d/.spektacular
